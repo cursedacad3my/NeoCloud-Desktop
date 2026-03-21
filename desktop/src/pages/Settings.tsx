@@ -44,6 +44,7 @@ const LANGUAGES = [
   { code: 'en', label: 'English' },
   { code: 'ru', label: 'Русский' },
   { code: 'tr', label: 'Turkce' },
+  { code: 'uk', label: 'Українська' },
 ] as const;
 
 /* ── Language Section ─────────────────────────────────────── */
