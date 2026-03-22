@@ -123,7 +123,7 @@ pub async fn spotify_auth_start(
 
     // Open the browser
     tauri_plugin_opener::open_url(&auth_url, None::<&str>)
-        .map_err(|e| format!("Failed to open browser: {}", e))?;;
+        .map_err(|e| format!("Failed to open browser: {}", e))?;
 
     // Accept the redirect
     let (stream, _) = listener.accept().await.map_err(|e| e.to_string())?;
@@ -247,8 +247,7 @@ pub async fn spotify_import_start(
 
         let raw = resp.text().await.map_err(|e| e.to_string())?;
         let page: SpotifySavedTracksPage = serde_json::from_str(&raw)
-            .map_err(|e| return Err(format!("Spotify API parse error: {} — body: {}", e, &raw[..raw.len().min(300)])))
-            .map_err(|e: String| e)?;
+            .map_err(|e| format!("Spotify API parse error: {} — body: {}", e, &raw[..raw.len().min(300)]))?;
 
         for item in &page.items {
             if let Some(track) = &item.track {

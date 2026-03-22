@@ -128,7 +128,7 @@ pub async fn ytmusic_auth_start(
     );
 
     tauri_plugin_opener::open_url(&auth_url, None::<&str>)
-        .map_err(|e| format!("Failed to open browser: {}", e))?;;
+        .map_err(|e| format!("Failed to open browser: {}", e))?;
 
     let (stream, _) = listener.accept().await.map_err(|e| e.to_string())?;
     let mut buf = vec![0u8; 4096];
@@ -256,8 +256,7 @@ pub async fn ytmusic_import_start(
 
         let raw = resp.text().await.map_err(|e| e.to_string())?;
         let page: YtRatingListResponse = serde_json::from_str(&raw)
-            .map_err(|e| return Err(format!("YouTube API parse error: {} — body: {}", e, &raw[..raw.len().min(300)])))
-            .map_err(|e: String| e)?;
+            .map_err(|e| format!("YouTube API parse error: {} — body: {}", e, &raw[..raw.len().min(300)]))?;
 
         if total_known.is_none() {
             if let Some(info) = &page.page_info {
