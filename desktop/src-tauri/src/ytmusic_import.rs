@@ -101,6 +101,7 @@ struct ScTrackResult {
 #[tauri::command]
 pub async fn ytmusic_auth_start(
     client_id: String,
+    client_secret: String,
     app: AppHandle,
 ) -> Result<(), String> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -165,6 +166,7 @@ pub async fn ytmusic_auth_start(
             ("code", &code),
             ("redirect_uri", &redirect_uri),
             ("client_id", &client_id),
+            ("client_secret", &client_secret),
             ("code_verifier", &verifier),
         ])
         .send()

@@ -37,6 +37,8 @@ export function YTMusicImportDialog({
   const navigate = useNavigate();
   const clientId = useSettingsStore((s) => s.youtubeClientId);
   const setClientId = useSettingsStore((s) => s.setYoutubeClientId);
+  const clientSecret = useSettingsStore((s) => s.youtubeClientSecret);
+  const setClientSecret = useSettingsStore((s) => s.setYoutubeClientSecret);
 
   const [authed, setAuthed] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
@@ -68,15 +70,19 @@ export function YTMusicImportDialog({
       setError('Please enter your Google OAuth Client ID first.');
       return;
     }
+    if (!clientSecret.trim()) {
+      setError('Please enter your Google OAuth Client Secret first.');
+      return;
+    }
     setError(null);
     setSigningIn(true);
     try {
-      await invoke('ytmusic_auth_start', { clientId: clientId.trim() });
+      await invoke('ytmusic_auth_start', { clientId: clientId.trim(), clientSecret: clientSecret.trim() });
     } catch (e) {
       setError(String(e));
       setSigningIn(false);
     }
-  }, [clientId]);
+  }, [clientId, clientSecret]);
 
   const handleLogout = useCallback(() => {
     invoke('ytmusic_logout').catch(console.error);
@@ -187,23 +193,30 @@ export function YTMusicImportDialog({
                 </div>
               </div>
             ) : !authed ? (
-              <div className="space-y-2">
-                <p className="text-[13px] font-semibold text-white/70">Google OAuth Client ID</p>
+              <div className="space-y-3">
+                <p className="text-[13px] font-semibold text-white/70">Google OAuth Credentials</p>
                 <p className="text-[12px] text-white/40">
                   1. Go to{' '}
                   <span className="text-red-400">console.cloud.google.com</span>
                   {' '}→ Create Project → Enable{' '}
                   <span className="text-white/60">YouTube Data API v3</span>
                   <br />
-                  2. Credentials → Create OAuth 2.0 Client ID (Desktop app type)
+                  2. Credentials → Create OAuth 2.0 Client ID (type: <strong className="text-white/60">Desktop app</strong>)
                   <br />
-                  3. Paste the Client ID below
+                  3. Paste both Client ID and Client Secret below
                 </p>
                 <input
                   type="text"
                   value={clientId}
                   onChange={(e) => setClientId(e.target.value)}
-                  placeholder="Paste your Google Client ID…"
+                  placeholder="Client ID (ends with .apps.googleusercontent.com)…"
+                  className="w-full px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.06] text-[13px] text-white/80 placeholder:text-white/20 focus:border-white/[0.12] focus:bg-white/[0.06] transition-all outline-none"
+                />
+                <input
+                  type="password"
+                  value={clientSecret}
+                  onChange={(e) => setClientSecret(e.target.value)}
+                  placeholder="Client Secret…"
                   className="w-full px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.06] text-[13px] text-white/80 placeholder:text-white/20 focus:border-white/[0.12] focus:bg-white/[0.06] transition-all outline-none"
                 />
               </div>

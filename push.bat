@@ -1,3 +1,3 @@
 git add .
-git commit -m "fix: Show real API error message on decode failure"
+git commit -m "fix: Add Google client_secret to token exchange, fix Spotify error handling"
 git push

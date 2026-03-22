@@ -239,6 +239,11 @@ pub async fn spotify_import_start(
             app.emit("spotify:logged_out", ()).ok();
             return Err("Spotify token expired. Please sign in again.".into());
         }
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("Spotify API error {}: {}", status, &body[..body.len().min(300)]));
+        }
 
         let raw = resp.text().await.map_err(|e| e.to_string())?;
         let page: SpotifySavedTracksPage = serde_json::from_str(&raw)
