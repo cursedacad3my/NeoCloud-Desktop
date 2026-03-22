@@ -175,7 +175,9 @@ pub async fn spotify_auth_start(
         return Err(format!("Token exchange error: {}", err));
     }
 
-    let token: SpotifyTokenResponse = token_resp.json().await.map_err(|e| e.to_string())?;
+    let raw = token_resp.text().await.map_err(|e| e.to_string())?;
+    let token: SpotifyTokenResponse = serde_json::from_str(&raw)
+        .map_err(|e| format!("Token parse error: {} — body: {}", e, &raw[..raw.len().min(300)]))?;
 
     {
         let state = app.state::<SpotifyState>();
@@ -238,7 +240,10 @@ pub async fn spotify_import_start(
             return Err("Spotify token expired. Please sign in again.".into());
         }
 
-        let page: SpotifySavedTracksPage = resp.json().await.map_err(|e| e.to_string())?;
+        let raw = resp.text().await.map_err(|e| e.to_string())?;
+        let page: SpotifySavedTracksPage = serde_json::from_str(&raw)
+            .map_err(|e| return Err(format!("Spotify API parse error: {} — body: {}", e, &raw[..raw.len().min(300)])))
+            .map_err(|e: String| e)?;
 
         for item in &page.items {
             if let Some(track) = &item.track {

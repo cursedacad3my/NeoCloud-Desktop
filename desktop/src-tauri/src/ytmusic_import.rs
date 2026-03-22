@@ -176,7 +176,9 @@ pub async fn ytmusic_auth_start(
         return Err(format!("Token exchange error: {}", err));
     }
 
-    let token: GoogleTokenResponse = token_resp.json().await.map_err(|e| e.to_string())?;
+    let raw = token_resp.text().await.map_err(|e| e.to_string())?;
+    let token: GoogleTokenResponse = serde_json::from_str(&raw)
+        .map_err(|e| format!("Token parse error: {} — body: {}", e, &raw[..raw.len().min(300)]))?;
 
     {
         let state = app.state::<YtMusicState>();
@@ -228,7 +230,7 @@ pub async fn ytmusic_import_start(
 
         let mut url = format!(
             "https://www.googleapis.com/youtube/v3/videos?\
-            myRating=like&part=snippet&maxResults=50&videoCategoryId=10"
+            myRating=like&part=snippet&maxResults=50"
         );
         if let Some(ref pt) = page_token {
             url.push_str(&format!("&pageToken={}", pt));
@@ -250,7 +252,10 @@ pub async fn ytmusic_import_start(
             return Err("YouTube token expired. Please sign in again.".into());
         }
 
-        let page: YtRatingListResponse = resp.json().await.map_err(|e| e.to_string())?;
+        let raw = resp.text().await.map_err(|e| e.to_string())?;
+        let page: YtRatingListResponse = serde_json::from_str(&raw)
+            .map_err(|e| return Err(format!("YouTube API parse error: {} — body: {}", e, &raw[..raw.len().min(300)])))
+            .map_err(|e: String| e)?;
 
         if total_known.is_none() {
             if let Some(info) = &page.page_info {
