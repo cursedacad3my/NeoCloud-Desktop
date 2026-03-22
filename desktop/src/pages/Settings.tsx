@@ -567,6 +567,7 @@ const ThemeSection = React.memo(function ThemeSection() {
           })}
         </div>
         
+        {/* Placement toggles */}
         <div className="flex items-center justify-between">
           <span className="text-[13px] text-white/60">{t('settings.visualizerPlaybar') || 'Show above playbar'}</span>
           <input
@@ -577,7 +578,7 @@ const ThemeSection = React.memo(function ThemeSection() {
           />
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-[13px] text-white/60">{t('settings.visualizerFullscreen') || 'Show in Track Page / Fullscreen'}</span>
+          <span className="text-[13px] text-white/60">{t('settings.visualizerFullscreen') || 'Show in Fullscreen'}</span>
           <input
             type="checkbox"
             checked={useSettingsStore((s) => s.visualizerFullscreen)}
@@ -586,8 +587,9 @@ const ThemeSection = React.memo(function ThemeSection() {
           />
         </div>
         
-        <div className="flex items-center justify-between pt-2">
-          <span className="text-[13px] text-white/60">{t('settings.visualizerThemeColor') || 'Use Theme Color'}</span>
+        {/* Color & Mirror */}
+        <div className="flex items-center justify-between pt-1">
+          <span className="text-[13px] text-white/60">{'Use Theme Color'}</span>
           <input
             type="checkbox"
             checked={useSettingsStore((s) => s.visualizerThemeColor)}
@@ -595,61 +597,127 @@ const ThemeSection = React.memo(function ThemeSection() {
             className="w-4 h-4 accent-[var(--color-accent)] cursor-pointer"
           />
         </div>
-
-        <div className="space-y-2 pt-2">
-          <div className="flex items-center justify-between">
-            <label className="text-[13px] text-white/60">
-              {t('settings.visualizerScale') || 'Scale'}
-            </label>
-            <span className="text-[12px] text-white/40 tabular-nums">
-              {useSettingsStore((s) => s.visualizerScale)}%
-            </span>
-          </div>
+        <div className="flex items-center justify-between">
+          <span className="text-[13px] text-white/60">{'Mirror (flip horizontally)'}</span>
           <input
-            type="range"
-            min={50}
-            max={200}
-            step={10}
+            type="checkbox"
+            checked={useSettingsStore((s) => s.visualizerMirror)}
+            onChange={(e) => useSettingsStore.getState().setVisualizerMirror(e.target.checked)}
+            className="w-4 h-4 accent-[var(--color-accent)] cursor-pointer"
+          />
+        </div>
+
+        {/* Width */}
+        <div className="space-y-1 pt-1">
+          <div className="flex items-center justify-between">
+            <label className="text-[13px] text-white/60">{'Width'}</label>
+            <span className="text-[12px] text-white/40 tabular-nums">{useSettingsStore((s) => s.visualizerWidth)}%</span>
+          </div>
+          <input type="range" min={20} max={100} step={5}
+            value={useSettingsStore((s) => s.visualizerWidth)}
+            onChange={(e) => useSettingsStore.getState().setVisualizerWidth(Number(e.target.value))}
+            className="w-full accent-[var(--color-accent)] h-1 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg"
+          />
+        </div>
+
+        {/* Height */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <label className="text-[13px] text-white/60">{'Height'}</label>
+            <span className="text-[12px] text-white/40 tabular-nums">{useSettingsStore((s) => s.visualizerHeight)}px</span>
+          </div>
+          <input type="range" min={32} max={300} step={8}
+            value={useSettingsStore((s) => s.visualizerHeight)}
+            onChange={(e) => useSettingsStore.getState().setVisualizerHeight(Number(e.target.value))}
+            className="w-full accent-[var(--color-accent)] h-1 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg"
+          />
+        </div>
+
+        {/* Scale */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <label className="text-[13px] text-white/60">{'Scale'}</label>
+            <span className="text-[12px] text-white/40 tabular-nums">{useSettingsStore((s) => s.visualizerScale)}%</span>
+          </div>
+          <input type="range" min={50} max={200} step={10}
             value={useSettingsStore((s) => s.visualizerScale)}
             onChange={(e) => useSettingsStore.getState().setVisualizerScale(Number(e.target.value))}
             className="w-full accent-[var(--color-accent)] h-1 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg"
           />
         </div>
 
-        <div className="space-y-2 pt-2">
+        {/* Opacity */}
+        <div className="space-y-1">
           <div className="flex items-center justify-between">
-            <label className="text-[13px] text-white/60">
-              {t('settings.visualizerXOffset') || 'X-Offset (pixels)'}
-            </label>
-            <span className="text-[12px] text-white/40 tabular-nums">
-              {useSettingsStore((s) => s.visualizerXOffset)}px
-            </span>
+            <label className="text-[13px] text-white/60">{'Opacity'}</label>
+            <span className="text-[12px] text-white/40 tabular-nums">{useSettingsStore((s) => s.visualizerOpacity)}%</span>
           </div>
-          <input
-            type="range"
-            min={-500}
-            max={500}
-            step={10}
+          <input type="range" min={10} max={100} step={5}
+            value={useSettingsStore((s) => s.visualizerOpacity)}
+            onChange={(e) => useSettingsStore.getState().setVisualizerOpacity(Number(e.target.value))}
+            className="w-full accent-[var(--color-accent)] h-1 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg"
+          />
+        </div>
+
+        {/* Smoothing */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <label className="text-[13px] text-white/60">{'Smoothing'}</label>
+            <span className="text-[12px] text-white/40 tabular-nums">{useSettingsStore((s) => s.visualizerSmoothing)}%</span>
+          </div>
+          <input type="range" min={5} max={80} step={5}
+            value={useSettingsStore((s) => s.visualizerSmoothing)}
+            onChange={(e) => useSettingsStore.getState().setVisualizerSmoothing(Number(e.target.value))}
+            className="w-full accent-[var(--color-accent)] h-1 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg"
+          />
+        </div>
+
+        {/* Fade */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <label className="text-[13px] text-white/60">{'Fade'}</label>
+            <span className="text-[12px] text-white/40 tabular-nums">{useSettingsStore((s) => s.visualizerFade)}%</span>
+          </div>
+          <input type="range" min={0} max={100} step={5}
+            value={useSettingsStore((s) => s.visualizerFade)}
+            onChange={(e) => useSettingsStore.getState().setVisualizerFade(Number(e.target.value))}
+            className="w-full accent-[var(--color-accent)] h-1 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg"
+          />
+        </div>
+
+        {/* Bar Count */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <label className="text-[13px] text-white/60">{'Bar Count'}</label>
+            <span className="text-[12px] text-white/40 tabular-nums">{useSettingsStore((s) => s.visualizerBars)}</span>
+          </div>
+          <input type="range" min={8} max={128} step={4}
+            value={useSettingsStore((s) => s.visualizerBars)}
+            onChange={(e) => useSettingsStore.getState().setVisualizerBars(Number(e.target.value))}
+            className="w-full accent-[var(--color-accent)] h-1 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg"
+          />
+        </div>
+
+        {/* X-Offset */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <label className="text-[13px] text-white/60">{'X-Offset'}</label>
+            <span className="text-[12px] text-white/40 tabular-nums">{useSettingsStore((s) => s.visualizerXOffset)}px</span>
+          </div>
+          <input type="range" min={-500} max={500} step={10}
             value={useSettingsStore((s) => s.visualizerXOffset)}
             onChange={(e) => useSettingsStore.getState().setVisualizerXOffset(Number(e.target.value))}
             className="w-full accent-[var(--color-accent)] h-1 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg"
           />
         </div>
 
-        <div className="space-y-2 pt-2">
+        {/* Y-Offset */}
+        <div className="space-y-1">
           <div className="flex items-center justify-between">
-            <label className="text-[13px] text-white/60">
-              {t('settings.visualizerYOffset') || 'Y-Offset (pixels)'}
-            </label>
-            <span className="text-[12px] text-white/40 tabular-nums">
-              {useSettingsStore((s) => s.visualizerYOffset)}px
-            </span>
+            <label className="text-[13px] text-white/60">{'Y-Offset'}</label>
+            <span className="text-[12px] text-white/40 tabular-nums">{useSettingsStore((s) => s.visualizerYOffset)}px</span>
           </div>
-          <input
-            type="range"
-            min={-300}
-            max={300}
-            step={10}
+          <input type="range" min={-300} max={300} step={10}
             value={useSettingsStore((s) => s.visualizerYOffset)}
             onChange={(e) => useSettingsStore.getState().setVisualizerYOffset(Number(e.target.value))}
             className="w-full accent-[var(--color-accent)] h-1 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg"
@@ -911,6 +979,70 @@ const AccountSection = React.memo(function AccountSection() {
   );
 });
 
+/* ── Equalizer Section ───────────────────────────────────── */
+
+const EQ_BANDS_LABELS = ['30Hz', '60Hz', '125Hz', '250Hz', '500Hz', '1kHz', '2kHz', '4kHz', '8kHz', '14kHz'];
+
+const EqualizerSection = React.memo(function EqualizerSection() {
+  const eqEnabled = useSettingsStore((s) => s.eqEnabled);
+  const eqGains = useSettingsStore((s) => s.eqGains);
+  const setEqEnabled = useSettingsStore((s) => s.setEqEnabled);
+  const setEqBand = useSettingsStore((s) => s.setEqBand);
+  const setEqGains = useSettingsStore((s) => s.setEqGains);
+
+  return (
+    <section className="bg-white/[0.02] border border-white/[0.05] backdrop-blur-[60px] rounded-3xl p-6 shadow-xl space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-[15px] font-bold text-white/80 tracking-tight">
+          {'Equalizer'}
+        </h3>
+        <button
+          onClick={() => setEqEnabled(!eqEnabled)}
+          className={`w-11 h-6 rounded-full transition-all duration-200 cursor-pointer relative ${
+            eqEnabled ? 'bg-accent' : 'bg-white/10'
+          }`}
+        >
+          <div
+            className={`absolute top-0.5 w-5 h-5 rounded-full shadow-md transition-all duration-200 ${
+              eqEnabled ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-white'
+            }`}
+          />
+        </button>
+      </div>
+
+      <div className={`transition-opacity duration-300 ${eqEnabled ? 'opacity-100' : 'opacity-30 pointer-events-none'}`}>
+        <div className="flex items-end justify-between h-48 pt-6 pb-2 gap-1 overflow-x-auto relative">
+          {eqGains.map((gain, i) => (
+            <div key={i} className="flex flex-col items-center justify-end h-full gap-3 flex-1 min-w-[28px]">
+              <span className="text-[10px] text-white/40 font-medium tabular-nums">{gain > 0 ? `+${gain.toFixed(1)}` : gain.toFixed(1)}</span>
+              <input
+                type="range"
+                min={-12}
+                max={12}
+                step={0.5}
+                value={gain}
+                onChange={(e) => setEqBand(i, parseFloat(e.target.value))}
+                className="w-1.5 h-28 accent-[var(--color-accent)] bg-white/10 rounded-full cursor-pointer hover:bg-white/20 transition-colors"
+                style={{ WebkitAppearance: 'slider-vertical' }}
+              />
+              <span className="text-[10px] text-white/50 font-semibold">{EQ_BANDS_LABELS[i]}</span>
+            </div>
+          ))}
+        </div>
+        
+        <div className="flex justify-end pt-4 border-t border-white/[0.05] mt-2">
+          <button
+            onClick={() => setEqGains([0,0,0,0,0,0,0,0,0,0])}
+            className="text-[12px] font-medium text-white/40 hover:text-white/80 transition-colors cursor-pointer"
+          >
+            Reset to Flat
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+});
+
 /* ── Main ───────────────────────────────────────────────── */
 
 export function Settings() {
@@ -923,6 +1055,7 @@ export function Settings() {
       <CacheSection />
       <ThemeSection />
       <PlaybackSection />
+      <EqualizerSection />
       <AudioDeviceSection />
       <ImportSection />
       <AccountSection />

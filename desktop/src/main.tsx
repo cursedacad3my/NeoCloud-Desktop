@@ -16,6 +16,7 @@ useSettingsStore.persist.onFinishHydration((state) => {
   if (state.language && state.language !== i18n.language) {
     i18n.changeLanguage(state.language);
   }
+  invoke('audio_set_eq', { enabled: state.eqEnabled, gains: state.eqGains }).catch(console.error);
 });
 
 

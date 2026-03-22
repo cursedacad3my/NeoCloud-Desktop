@@ -9,153 +9,174 @@ interface VisualizerProps {
   style?: VisualizerStyle;
 }
 
-// Parse hex to RGB to allow alpha blending on canvas
 function hexToRgb(hex: string) {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result
-    ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) }
-    : { r: 255, g: 255, b: 255 };
+  const r = parseInt(hex.slice(1, 3), 16) || 255;
+  const g = parseInt(hex.slice(3, 5), 16) || 255;
+  const b = parseInt(hex.slice(5, 7), 16) || 255;
+  return { r, g, b };
 }
 
 export const Visualizer: React.FC<VisualizerProps> = ({ className = '', style }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  
-  // Use passed style or subscribe directly to global settings
+
   const storeStyle = useSettingsStore((s) => s.visualizerStyle);
   const currentStyle = style || storeStyle || 'Off';
-
   const themeColorOpt = useSettingsStore((s) => s.visualizerThemeColor);
   const accentColorHex = useSettingsStore((s) => s.accentColor);
   const vizScale = useSettingsStore((s) => s.visualizerScale) / 100;
   const vizXOffset = useSettingsStore((s) => s.visualizerXOffset);
   const vizYOffset = useSettingsStore((s) => s.visualizerYOffset);
+  const vizMirror = useSettingsStore((s) => s.visualizerMirror);
+  const vizSmoothing = useSettingsStore((s) => s.visualizerSmoothing);
+  const vizBars = useSettingsStore((s) => s.visualizerBars);
 
-  // We capture the base Color outside of the drawing loop so it updates dynamically
-  const baseRgb = useRef(hexToRgb('#ffffff'));
+  // Refs for hot-loop values (avoid re-creating effect)
+  const cfgRef = useRef({ smoothing: vizSmoothing, mirror: vizMirror, bars: vizBars, rgb: { r: 255, g: 255, b: 255 } });
   useEffect(() => {
-    baseRgb.current = themeColorOpt ? hexToRgb(accentColorHex) : hexToRgb('#ffffff');
-  }, [themeColorOpt, accentColorHex]);
+    cfgRef.current.smoothing = vizSmoothing;
+    cfgRef.current.mirror = vizMirror;
+    cfgRef.current.bars = vizBars;
+    cfgRef.current.rgb = themeColorOpt ? hexToRgb(accentColorHex) : { r: 255, g: 255, b: 255 };
+  }, [vizSmoothing, vizMirror, vizBars, themeColorOpt, accentColorHex]);
 
   useEffect(() => {
     if (currentStyle === 'Off') return;
 
+    let isCancelled = false;
     let unlisten: (() => void) | null = null;
-    let animationFrameId: number;
-
-    // We store the latest bins here so the render loop can interpolate/smooth them
-    let targetBins = new Uint8Array(64);
-    const currentBins = new Array(64).fill(0);
+    let raf = 0;
+    // Single shared typed array for target bins — avoids GC churn
+    const targetBins = new Float32Array(128);
+    const smoothBins = new Float32Array(128);
+    let lastW = 0, lastH = 0;
 
     const setup = async () => {
-      unlisten = await listen<number[]>('audio:visualizer', (event) => {
-        // payload comes as Array of numbers from Rust Vec<u8>
-        targetBins = new Uint8Array(event.payload);
+      const fn = await listen<number[]>('audio:visualizer', (ev) => {
+        if (isCancelled) return;
+        const d = ev.payload;
+        const len = Math.min(d.length, 64);
+        for (let i = 0; i < len; i++) targetBins[i] = d[i];
       });
+      if (isCancelled) {
+        fn(); // Unsubscribe immediately if unmounted during await
+      } else {
+        unlisten = fn;
+      }
     };
     setup();
 
     const draw = () => {
       const canvas = canvasRef.current;
-      if (!canvas) return;
+      if (!canvas) { raf = requestAnimationFrame(draw); return; }
+      const ctx = canvas.getContext('2d', { alpha: true });
+      if (!ctx) { raf = requestAnimationFrame(draw); return; }
 
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      const dpr = window.devicePixelRatio;
 
-      const width = canvas.clientWidth;
-      const height = canvas.clientHeight;
-      if (canvas.width !== width * window.devicePixelRatio) {
-        canvas.width = width * window.devicePixelRatio;
-        canvas.height = height * window.devicePixelRatio;
-        ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+      // Resize only when dimensions actually change
+      if (lastW !== w || lastH !== h) {
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        lastW = w; lastH = h;
+      } else {
+        ctx.clearRect(0, 0, w, h);
       }
 
-      ctx.clearRect(0, 0, width, height);
+      const { smoothing, mirror, bars: numBars, rgb: { r, g, b } } = cfgRef.current;
+      const lerp = smoothing / 100;
 
-      // Smooth out the array
-      for (let i = 0; i < 64; i++) {
-        const t = targetBins[i] || 0;
-        currentBins[i] += (t - currentBins[i]) * 0.3;
+      // Resample 64 → numBars with lerp smoothing
+      for (let i = 0; i < numBars; i++) {
+        const src = (i / numBars) * 64;
+        const lo = src | 0; // fast floor
+        const hi = Math.min(lo + 1, 63);
+        const f = src - lo;
+        const target = targetBins[lo] * (1 - f) + targetBins[hi] * f;
+        smoothBins[i] += (target - smoothBins[i]) * lerp;
       }
+
+      if (mirror) { ctx.save(); ctx.translate(w, 0); ctx.scale(-1, 1); }
 
       if (currentStyle === 'Bars') {
-        const barWidth = width / 64;
-        const gap = Math.max(1, barWidth * 0.2);
-        const activeWidth = barWidth - gap;
-        const { r, g, b } = baseRgb.current;
-
-        for (let i = 0; i < 64; i++) {
-          const val = currentBins[i];
-          const h = (val / 255) * height;
-          
-          ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${Math.max(0.1, val / 255)})`;
-          const x = i * barWidth;
-          const y = height - h;
-          
+        const barW = w / numBars;
+        const gap = Math.max(1, barW * 0.15);
+        const aW = barW - gap;
+        for (let i = 0; i < numBars; i++) {
+          const v = smoothBins[i];
+          const bh = (v / 255) * h;
+          ctx.fillStyle = `rgba(${r},${g},${b},${Math.max(0.08, v / 255)})`;
           ctx.beginPath();
-          ctx.roundRect(x, y, activeWidth, h, [4, 4, 0, 0]);
+          ctx.roundRect(i * barW, h - bh, aW, bh, [3, 3, 0, 0]);
           ctx.fill();
         }
+
       } else if (currentStyle === 'Wave') {
-        ctx.beginPath();
-        ctx.moveTo(0, height);
-        
-        for (let i = 0; i < 64; i++) {
-          const val = currentBins[i];
-          const h = (val / 255) * height;
-          const x = (i / 63) * width;
-          const y = height - h;
-          
-          if (i === 0) ctx.lineTo(x, y);
-          else {
-            const prevX = ((i - 1) / 63) * width;
-            const prevH = (currentBins[i - 1] / 255) * height;
-            const prevY = height - prevH;
-            
-            const cpX = prevX + (x - prevX) / 2;
-            ctx.bezierCurveTo(cpX, prevY, cpX, y, x, y);
-          }
+        // Build Catmull-Rom point array with virtual edge clamping
+        const n = numBars;
+        // Reuse a flat array: [x0,y0, x1,y1, ...] — (n+2) points including virtual edges
+        const total = n + 2;
+        const px = new Float32Array(total);
+        const py = new Float32Array(total);
+        for (let i = 0; i < n; i++) {
+          px[i + 1] = (i / (n - 1)) * w;
+          py[i + 1] = h - (smoothBins[i] / 255) * h;
         }
-        
-        ctx.lineTo(width, height);
-        const { r, g, b } = baseRgb.current;
-        const gradient = ctx.createLinearGradient(0, 0, 0, height);
-        gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.5)`);
-        gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0.0)`);
-        ctx.fillStyle = gradient;
-        ctx.fill();
-        
-        ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.9)`;
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      } else if (currentStyle === 'Pulse') {
-        const centerX = width / 2;
-        const centerY = height / 2;
-        let sum = 0;
-        for (let i = 0; i < 16; i++) sum += currentBins[i];
-        
-        const avgBass = sum / 16;
-        const radius = Math.min(width, height) * 0.2 + (avgBass / 255) * Math.min(width, height) * 0.3;
-        
+        // Virtual endpoints for edge smoothness
+        px[0] = -px[1]; py[0] = py[1];
+        px[n + 1] = w + (w - px[n]); py[n + 1] = py[n];
+
+        const tension = 0.35;
         ctx.beginPath();
-        ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-        
-        const { r, g, b } = baseRgb.current;
-        const gradient = ctx.createRadialGradient(centerX, centerY, radius * 0.5, centerX, centerY, radius * 1.5);
-        gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.8)`);
-        gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0.0)`);
-        
-        ctx.fillStyle = gradient;
+        ctx.moveTo(0, h);
+        ctx.lineTo(px[1], py[1]);
+
+        for (let i = 1; i < total - 2; i++) {
+          const cp1x = px[i] + (px[i + 1] - px[i - 1]) * tension;
+          const cp1y = py[i] + (py[i + 1] - py[i - 1]) * tension;
+          const cp2x = px[i + 1] - (px[i + 2] - px[i]) * tension;
+          const cp2y = py[i + 1] - (py[i + 2] - py[i]) * tension;
+          ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, px[i + 1], py[i + 1]);
+        }
+
+        ctx.lineTo(w, h);
+        ctx.closePath();
+
+        const grad = ctx.createLinearGradient(0, 0, 0, h);
+        grad.addColorStop(0, `rgba(${r},${g},${b},0.45)`);
+        grad.addColorStop(0.6, `rgba(${r},${g},${b},0.15)`);
+        grad.addColorStop(1, `rgba(${r},${g},${b},0.0)`);
+        ctx.fillStyle = grad;
+        ctx.fill();
+        // No bottom stroke — fill only for clean look
+
+      } else if (currentStyle === 'Pulse') {
+        const cx = w / 2, cy = h / 2;
+        let sum = 0;
+        const bc = Math.max(1, numBars >> 2);
+        for (let i = 0; i < bc; i++) sum += smoothBins[i];
+        const avg = sum / bc;
+        const rad = Math.min(w, h) * 0.2 + (avg / 255) * Math.min(w, h) * 0.3;
+        ctx.beginPath();
+        ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+        const grad = ctx.createRadialGradient(cx, cy, rad * 0.5, cx, cy, rad * 1.5);
+        grad.addColorStop(0, `rgba(${r},${g},${b},0.8)`);
+        grad.addColorStop(1, `rgba(${r},${g},${b},0.0)`);
+        ctx.fillStyle = grad;
         ctx.fill();
       }
 
-      animationFrameId = requestAnimationFrame(draw);
+      if (mirror) ctx.restore();
+      raf = requestAnimationFrame(draw);
     };
 
     draw();
-
     return () => {
+      isCancelled = true;
       if (unlisten) unlisten();
-      cancelAnimationFrame(animationFrameId);
+      cancelAnimationFrame(raf);
     };
   }, [currentStyle]);
 
@@ -167,8 +188,8 @@ export const Visualizer: React.FC<VisualizerProps> = ({ className = '', style })
       className={`pointer-events-none ${className}`}
       style={{
         transform: `translate(${vizXOffset}px, ${vizYOffset}px) scale(${vizScale})`,
-        transformOrigin: "bottom center",
-        transition: "transform 0.15s ease-out"
+        transformOrigin: 'bottom center',
+        transition: 'transform 0.15s ease-out',
       }}
     />
   );

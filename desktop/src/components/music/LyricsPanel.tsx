@@ -89,15 +89,39 @@ const FullscreenBackground = React.memo(
             `,
           }}
         />
-        {useSettingsStore((s) => s.visualizerFullscreen) && (
-          <div className="absolute inset-0 opacity-30 z-0 [mask-image:linear-gradient(to_top,black,transparent)] mix-blend-screen scale-y-125 mb-[-20%]">
-            <Visualizer className="opacity-60" />
-          </div>
-        )}
+        {useSettingsStore((s) => s.visualizerFullscreen) && <FullscreenVisualizer />}
       </div>
     );
   },
 );
+
+/* ── Fullscreen Visualizer ──────────────────────────────────────── */
+
+const FullscreenVisualizer = React.memo(() => {
+  const w = useSettingsStore((s) => s.visualizerWidth);
+  const op = useSettingsStore((s) => s.visualizerOpacity);
+  const fade = useSettingsStore((s) => s.visualizerFade);
+  const sc = useSettingsStore((s) => s.visualizerScale) / 100;
+  
+  return (
+    <div
+      className="absolute bottom-0 left-0 right-0 z-[1] pointer-events-none mix-blend-screen"
+      style={{
+        width: `${w}%`,
+        height: '50%',
+        minHeight: '350px',
+        left: `${(100 - w) / 2}%`,
+        opacity: op / 100,
+        transform: `scaleY(${sc})`,
+        transformOrigin: 'bottom center',
+        maskImage: `linear-gradient(to top, black ${100 - fade}%, transparent 100%)`,
+        WebkitMaskImage: `linear-gradient(to top, black ${100 - fade}%, transparent 100%)`,
+      }}
+    >
+      <Visualizer className="w-full h-full" />
+    </div>
+  );
+});
 
 /* ── Shared: like button (for fullscreen panels) ──────────── */
 

@@ -20,7 +20,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 const EQ_BANDS: usize = 10;
 const EQ_FREQS: [f64; EQ_BANDS] = [
-    32.0, 64.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0,
+    30.0, 60.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 14000.0,
 ];
 const EQ_Q: f64 = 1.414; // ~1 octave bandwidth for peaking filters
 const TICK_INTERVAL_MS: u64 = 100;

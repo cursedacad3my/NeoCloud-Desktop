@@ -426,6 +426,32 @@ const BackgroundGlow = React.memo(() => {
   );
 });
 
+/* ── Playbar Visualizer ──────────────────────────────────────── */
+
+const PlaybarVisualizer = React.memo(() => {
+  const w = useSettingsStore((s) => s.visualizerWidth);
+  const h = useSettingsStore((s) => s.visualizerHeight);
+  const op = useSettingsStore((s) => s.visualizerOpacity);
+  const fade = useSettingsStore((s) => s.visualizerFade);
+  
+  return (
+    <div
+      className="absolute pointer-events-none z-[5] overflow-visible"
+      style={{
+        bottom: '100%',
+        width: `${w}%`,
+        height: `${h}px`,
+        left: `${(100 - w) / 2}%`,
+        opacity: op / 100,
+        maskImage: `linear-gradient(to top, black ${100 - fade}%, transparent 100%)`,
+        WebkitMaskImage: `linear-gradient(to top, black ${100 - fade}%, transparent 100%)`,
+      }}
+    >
+      <Visualizer className="w-full h-full" />
+    </div>
+  );
+});
+
 /* ── NowPlayingBar ───────────────────────────────────────────── */
 
 export const NowPlayingBar = React.memo(
@@ -434,11 +460,7 @@ export const NowPlayingBar = React.memo(
       <div className="shrink-0 relative">
         <BackgroundGlow />
         
-        {useSettingsStore((s) => s.visualizerPlaybar) && (
-          <div className="absolute bottom-full left-0 right-0 h-24 pointer-events-none opacity-50 z-0 mask-image-bottom-fade">
-            <Visualizer />
-          </div>
-        )}
+        {useSettingsStore((s) => s.visualizerPlaybar) && <PlaybarVisualizer />}
 
         {/* Isolated layer — repaints here won't cascade to blur background */}
         <div className="relative z-10" style={{ isolation: 'isolate' }}>

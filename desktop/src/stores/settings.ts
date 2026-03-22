@@ -63,9 +63,16 @@ export interface SettingsState {
   visualizerPlaybar: boolean;
   visualizerFullscreen: boolean;
   visualizerThemeColor: boolean;
+  visualizerWidth: number;
+  visualizerHeight: number;
   visualizerScale: number;
   visualizerXOffset: number;
   visualizerYOffset: number;
+  visualizerOpacity: number;
+  visualizerSmoothing: number;
+  visualizerMirror: boolean;
+  visualizerFade: number;
+  visualizerBars: number;
   targetFramerate: number;
   unlockFramerate: boolean;
   showFpsCounter: boolean;
@@ -87,9 +94,16 @@ export interface SettingsState {
   setVisualizerPlaybar: (v: boolean) => void;
   setVisualizerFullscreen: (v: boolean) => void;
   setVisualizerThemeColor: (v: boolean) => void;
+  setVisualizerWidth: (v: number) => void;
+  setVisualizerHeight: (v: number) => void;
   setVisualizerScale: (v: number) => void;
   setVisualizerXOffset: (v: number) => void;
   setVisualizerYOffset: (v: number) => void;
+  setVisualizerOpacity: (v: number) => void;
+  setVisualizerSmoothing: (v: number) => void;
+  setVisualizerMirror: (v: boolean) => void;
+  setVisualizerFade: (v: number) => void;
+  setVisualizerBars: (v: number) => void;
   setTargetFramerate: (fps: number) => void;
   setUnlockFramerate: (unlocked: boolean) => void;
   setShowFpsCounter: (show: boolean) => void;
@@ -112,13 +126,20 @@ const DEFAULTS = {
   eqPreset: 'flat',
   sidebarCollapsed: false,
   floatingComments: true,
-  visualizerStyle: 'Off' as const,
+  visualizerStyle: 'Wave' as const,
   visualizerPlaybar: true,
   visualizerFullscreen: false,
   visualizerThemeColor: true,
+  visualizerWidth: 100,
+  visualizerHeight: 56,
   visualizerScale: 100,
   visualizerXOffset: 0,
   visualizerYOffset: 0,
+  visualizerOpacity: 100,
+  visualizerSmoothing: 30,
+  visualizerMirror: false,
+  visualizerFade: 0,
+  visualizerBars: 56,
   targetFramerate: 60,
   unlockFramerate: false,
   showFpsCounter: false,
@@ -143,24 +164,39 @@ export const useSettingsStore = create<SettingsState>()(
       setBackgroundOpacity: (backgroundOpacity) => set({ backgroundOpacity }),
       setGlassBlur: (glassBlur) => set({ glassBlur }),
       setLanguage: (language) => set({ language }),
-      setEqEnabled: (eqEnabled) => set({ eqEnabled }),
-      setEqGains: (eqGains) => set({ eqGains, eqPreset: 'custom' }),
+      setEqEnabled: (eqEnabled) => {
+        set({ eqEnabled });
+        invoke('audio_set_eq', { enabled: eqEnabled, gains: get().eqGains }).catch(console.error);
+      },
+      setEqGains: (eqGains) => {
+        set({ eqGains, eqPreset: 'custom' });
+        invoke('audio_set_eq', { enabled: get().eqEnabled, gains: eqGains }).catch(console.error);
+      },
       setEqPreset: (eqPreset) => set({ eqPreset }),
-      setEqBand: (index, gain) =>
+      setEqBand: (index, gain) => {
         set((s) => {
           const eqGains = [...s.eqGains];
           eqGains[index] = gain;
+          invoke('audio_set_eq', { enabled: s.eqEnabled, gains: eqGains }).catch(console.error);
           return { eqGains, eqPreset: 'custom' };
-        }),
+        });
+      },
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setFloatingComments: (floatingComments) => set({ floatingComments }),
       setVisualizerStyle: (visualizerStyle) => set({ visualizerStyle }),
       setVisualizerPlaybar: (visualizerPlaybar) => set({ visualizerPlaybar }),
       setVisualizerFullscreen: (visualizerFullscreen) => set({ visualizerFullscreen }),
       setVisualizerThemeColor: (visualizerThemeColor) => set({ visualizerThemeColor }),
+      setVisualizerWidth: (visualizerWidth) => set({ visualizerWidth }),
+      setVisualizerHeight: (visualizerHeight) => set({ visualizerHeight }),
       setVisualizerScale: (visualizerScale) => set({ visualizerScale }),
       setVisualizerXOffset: (visualizerXOffset) => set({ visualizerXOffset }),
       setVisualizerYOffset: (visualizerYOffset) => set({ visualizerYOffset }),
+      setVisualizerOpacity: (visualizerOpacity) => set({ visualizerOpacity }),
+      setVisualizerSmoothing: (visualizerSmoothing) => set({ visualizerSmoothing }),
+      setVisualizerMirror: (visualizerMirror) => set({ visualizerMirror }),
+      setVisualizerFade: (visualizerFade) => set({ visualizerFade }),
+      setVisualizerBars: (visualizerBars) => set({ visualizerBars }),
       setTargetFramerate: (targetFramerate) => {
         set({ targetFramerate });
         invoke('save_framerate_config', { target: targetFramerate, unlocked: get().unlockFramerate }).catch(console.error);
