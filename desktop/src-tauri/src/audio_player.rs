@@ -441,7 +441,8 @@ enum AudioThreadCmd {
 }
 
 pub struct AudioState {
-    player: Mutex<Option<Player>>,
+    player: Mutex<Option<Arc<Player>>>,
+    crossfade_player: Mutex<Option<Arc<Player>>>,
     mixer: Arc<Mutex<Mixer>>,
     eq_params: Arc<RwLock<EqParams>>,
     volume: Mutex<f32>, // 0.0 - 2.0
@@ -583,6 +584,7 @@ pub fn init() -> AudioState {
 
     AudioState {
         player: Mutex::new(None),
+        crossfade_player: Mutex::new(None),
         mixer: shared_mixer,
         eq_params: Arc::new(RwLock::new(EqParams::default())),
         volume: Mutex::new(0.25), // 50/200
@@ -787,21 +789,60 @@ fn volume_to_rodio(v: f64) -> f32 {
 
 /// Load and play audio from a file path
 #[tauri::command]
-pub fn audio_load_file(path: String, state: tauri::State<'_, AudioState>) -> Result<AudioLoadResult, String> {
+pub fn audio_load_file(path: String, crossfade_secs: Option<f64>, state: tauri::State<'_, AudioState>) -> Result<AudioLoadResult, String> {
     let bytes =
         std::fs::read(&path).map_err(|e| format!("Failed to read {}: {}", path, e))?;
-
-    // Stop old player BEFORE creating new one to prevent overlap
-    {
-        let mut player = state.player.lock().unwrap();
-        if let Some(old) = player.take() {
-            old.stop();
-        }
-    }
 
     let mixer = state.mixer.lock().unwrap().clone();
     let vol = *state.volume.lock().unwrap();
     let (new_player, duration_secs) = create_player_from_bytes(&bytes, &mixer, vol, state.eq_params.clone(), state.visualizer_tx.lock().unwrap().clone())?;
+    let new_player = Arc::new(new_player);
+
+    let mut old_player_opt = None;
+    {
+        let mut player = state.player.lock().unwrap();
+        if let Some(old) = player.take() {
+            old_player_opt = Some(old);
+        }
+    }
+
+    if let Some(cf_duration) = crossfade_secs {
+        if let Some(old_player) = old_player_opt {
+            if !old_player.is_paused() && !old_player.empty() {
+                // We have a fading-out track. Move it to crossfade_player
+                let mut cf_lock = state.crossfade_player.lock().unwrap();
+                if let Some(old_cf) = cf_lock.take() {
+                    old_cf.stop();
+                }
+                
+                new_player.set_volume(0.0);
+                *cf_lock = Some(old_player.clone());
+                
+                let cf_player = old_player;
+                let np_player = new_player.clone();
+                let steps = (cf_duration * 1000.0 / 20.0) as u32;
+                if steps > 0 {
+                    std::thread::spawn(move || {
+                        let vol_step = vol / (steps as f32);
+                        for i in 0..=steps {
+                            let np_v = vol_step * (i as f32);
+                            let cf_v = vol - np_v;
+                            np_player.set_volume(np_v);
+                            cf_player.set_volume(cf_v);
+                            std::thread::sleep(Duration::from_millis(20));
+                        }
+                        cf_player.stop();
+                    });
+                }
+            } else {
+                old_player.stop();
+            }
+        }
+    } else {
+        if let Some(old) = old_player_opt {
+            old.stop();
+        }
+    }
 
     *state.player.lock().unwrap() = Some(new_player);
     *state.source_bytes.lock().unwrap() = Some(bytes);
@@ -823,6 +864,7 @@ pub async fn audio_load_url(
     url: String,
     session_id: Option<String>,
     cache_path: Option<String>,
+    crossfade_secs: Option<f64>,
     state: tauri::State<'_, AudioState>,
 ) -> Result<AudioLoadResult, String> {
     let gen = state.load_gen.load(Ordering::Relaxed);
@@ -854,23 +896,62 @@ pub async fn audio_load_url(
         });
     }
 
-    // Stop old player BEFORE creating new one to prevent overlap
-    {
-        let mut player = state.player.lock().unwrap();
-        if let Some(old) = player.take() {
-            old.stop();
-        }
-    }
-
-    // Stale check again after stopping
-    if state.load_gen.load(Ordering::Relaxed) != gen {
-        return Ok(empty_result);
-    }
-
     // Decode and play
     let mixer = state.mixer.lock().unwrap().clone();
     let vol = *state.volume.lock().unwrap();
     let (new_player, duration_secs) = create_player_from_bytes(&bytes, &mixer, vol, state.eq_params.clone(), state.visualizer_tx.lock().unwrap().clone())?;
+    let new_player = Arc::new(new_player);
+
+    let mut old_player_opt = None;
+    {
+        let mut player = state.player.lock().unwrap();
+        if let Some(old) = player.take() {
+            old_player_opt = Some(old);
+        }
+    }
+
+    if let Some(cf_duration) = crossfade_secs {
+        if let Some(old_player) = old_player_opt {
+            if !old_player.is_paused() && !old_player.empty() {
+                // We have a fading-out track. Move it to crossfade_player
+                let mut cf_lock = state.crossfade_player.lock().unwrap();
+                if let Some(old_cf) = cf_lock.take() {
+                    old_cf.stop();
+                }
+                
+                new_player.set_volume(0.0);
+                *cf_lock = Some(old_player.clone());
+                
+                let cf_player = old_player;
+                let np_player = new_player.clone();
+                let steps = (cf_duration * 1000.0 / 20.0) as u32;
+                if steps > 0 {
+                    std::thread::spawn(move || {
+                        let vol_step = vol / (steps as f32);
+                        for i in 0..=steps {
+                            let np_v = vol_step * (i as f32);
+                            let cf_v = vol - np_v;
+                            np_player.set_volume(np_v);
+                            cf_player.set_volume(cf_v);
+                            std::thread::sleep(Duration::from_millis(20));
+                        }
+                        cf_player.stop();
+                    });
+                }
+            } else {
+                old_player.stop();
+            }
+        }
+    } else {
+        if let Some(old) = old_player_opt {
+            old.stop();
+        }
+    }
+
+    // Stale check again after processing stops
+    if state.load_gen.load(Ordering::Relaxed) != gen {
+        return Ok(empty_result);
+    }
 
     *state.player.lock().unwrap() = Some(new_player);
     *state.source_bytes.lock().unwrap() = Some(bytes);
@@ -907,6 +988,11 @@ pub fn audio_stop(state: tauri::State<'_, AudioState>) {
     if let Ok(mut player) = state.player.try_lock() {
         if let Some(old) = player.take() {
             old.stop();
+        }
+    }
+    if let Ok(mut cf_player) = state.crossfade_player.try_lock() {
+        if let Some(old_cf) = cf_player.take() {
+            old_cf.stop();
         }
     }
     if let Ok(mut bytes) = state.source_bytes.try_lock() {
@@ -954,7 +1040,11 @@ pub fn audio_seek(position: f64, state: tauri::State<'_, AudioState>) -> Result<
     if let Some(old) = player.take() {
         old.stop();
     }
-    *player = Some(new_player);
+    let mut cf_player = state.crossfade_player.lock().unwrap();
+    if let Some(old_cf) = cf_player.take() {
+        old_cf.stop();
+    }
+    *player = Some(Arc::new(new_player));
     state.ended_notified.store(false, Ordering::Relaxed);
 
     if was_paused {

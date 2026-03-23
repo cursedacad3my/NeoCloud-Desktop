@@ -54,7 +54,8 @@
     "lyricsLoading": "Searching lyrics...",
     "download": "Download",
     "downloaded": "Saved",
-    "preview": "Preview"
+    "preview": "Preview",
+    "dislike": "Don't play this track"
   },
   "playlist": {
     "playAll": "Play All",
@@ -144,6 +145,8 @@
     "wallpaperAdded": "Wallpaper added",
     "bgLoadError": "Failed to load image",
     "bgOpacity": "Background opacity",
+    "classicPlaybar": "Classic Playbar",
+    "classicPlaybarDesc": "Use the traditional line-style progress bar",
     "resetDefaults": "Reset to defaults",
     "account": "Account",
     "language": "Language",

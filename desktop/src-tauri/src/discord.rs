@@ -19,6 +19,7 @@ pub struct DiscordTrackInfo {
     track_url: Option<String>,
     duration_secs: Option<i64>,
     elapsed_secs: Option<i64>,
+    lyric_line: Option<String>,
 }
 
 #[tauri::command]
@@ -77,10 +78,22 @@ pub fn discord_set_activity(
     let assets = Assets::new()
         .large_image(large_image);
 
+    let details = if track.lyric_line.is_some() {
+        format!("{} - {}", track.title, track.artist)
+    } else {
+        track.title.clone()
+    };
+
+    let state_str = if let Some(ref lyric) = track.lyric_line {
+        lyric.clone()
+    } else {
+        track.artist.clone()
+    };
+
     let mut activity = Activity::new()
         .activity_type(ActivityType::Listening)
-        .details(&track.title)
-        .state(&track.artist)
+        .details(&details)
+        .state(&state_str)
         .assets(assets)
         .timestamps(timestamps);
 

@@ -1,5 +1,4 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
 import { getCurrentTime } from './audio';
 
@@ -20,7 +19,19 @@ function artworkToLarge(url: string | null): string | undefined {
   return url.replace(/-[^-./]+(\.[^.]+)$/, '-t500x500$1');
 }
 
-async function updatePresence(track: Track) {
+export let currentLyricLine: string | null = null;
+let lastUpdateTs = 0;
+let updateTimeout: number | null = null;
+
+async function actuallyUpdateActivity() {
+  const track = usePlayerStore.getState().currentTrack;
+  const isPlaying = usePlayerStore.getState().isPlaying;
+  
+  if (!track || !isPlaying) {
+    clearPresence();
+    return;
+  }
+
   if (!(await ensureConnected())) return;
 
   try {
@@ -34,12 +45,39 @@ async function updatePresence(track: Track) {
           : undefined,
         duration_secs: Math.round(track.duration / 1000),
         elapsed_secs: Math.round(getCurrentTime()),
+        lyric_line: currentLyricLine || undefined,
       },
     });
   } catch (e) {
     console.warn('[Discord] Failed to set activity:', e);
     connected = false;
   }
+}
+
+function requestDiscordUpdate() {
+  const now = Date.now();
+  const diff = now - lastUpdateTs;
+  
+  if (updateTimeout) {
+    window.clearTimeout(updateTimeout);
+    updateTimeout = null;
+  }
+
+  if (diff >= 1500) {
+    lastUpdateTs = now;
+    actuallyUpdateActivity();
+  } else {
+    updateTimeout = window.setTimeout(() => {
+      lastUpdateTs = Date.now();
+      actuallyUpdateActivity();
+    }, 1500 - diff);
+  }
+}
+
+export function updateDiscordLyric(lyric: string | null) {
+  if (currentLyricLine === lyric) return;
+  currentLyricLine = lyric;
+  requestDiscordUpdate();
 }
 
 async function clearPresence() {
@@ -60,8 +98,16 @@ usePlayerStore.subscribe((state) => {
   const trackChanged = currentTrack?.urn !== lastUrn;
   const playChanged = isPlaying !== lastPlaying;
 
+  if (trackChanged) {
+    currentLyricLine = null;
+  }
+
   if (!currentTrack || !isPlaying) {
     if (lastPlaying || trackChanged) {
+      if (updateTimeout) {
+        window.clearTimeout(updateTimeout);
+        updateTimeout = null;
+      }
       clearPresence();
     }
     lastUrn = currentTrack?.urn ?? null;
@@ -72,6 +118,9 @@ usePlayerStore.subscribe((state) => {
   if (trackChanged || playChanged) {
     lastUrn = currentTrack.urn;
     lastPlaying = isPlaying;
-    updatePresence(currentTrack);
+    
+    // Always dispatch immediately for play/pause toggles or fresh tracks 
+    // to keep Discord feeling responsive, but still pass through our throttle
+    requestDiscordUpdate();
   }
 });

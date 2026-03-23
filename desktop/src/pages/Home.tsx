@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { LikeButton } from '../components/music/LikeButton';
 import { TrackCard } from '../components/music/TrackCard';
+import { SoundWaveHero } from '../components/music/SoundWaveHero';
+import { MixCard } from '../components/music/MixCard';
 import { HorizontalScroll } from '../components/ui/HorizontalScroll';
 import { Skeleton } from '../components/ui/Skeleton';
 import { preloadTrack } from '../lib/audio';
@@ -32,11 +34,7 @@ import {
   Music,
   musicIcon22,
   pauseBlack14,
-  pauseBlack18,
-  pauseBlack22,
   playBlack14,
-  playBlack18,
-  playBlack22,
   Repeat2,
   Sparkles,
 } from '../lib/icons';
@@ -105,21 +103,6 @@ function ShelfSkeleton({ count = 8 }: { count?: number }) {
   );
 }
 
-function FeaturedSkeleton() {
-  return (
-    <div className="glass rounded-3xl p-6 flex items-center gap-6">
-      <Skeleton className="w-[160px] h-[160px] shrink-0" rounded="lg" />
-      <div className="flex-1 space-y-3">
-        <Skeleton className="h-6 w-3/4" rounded="sm" />
-        <Skeleton className="h-4 w-1/3" rounded="sm" />
-        <div className="pt-3" />
-        <Skeleton className="h-3 w-1/2" rounded="sm" />
-      </div>
-      <Skeleton className="w-14 h-14 shrink-0" rounded="full" />
-    </div>
-  );
-}
-
 function FeedSkeleton({ count = 6 }: { count?: number }) {
   return (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(380px,1fr))] gap-2.5">
@@ -136,148 +119,6 @@ function FeedSkeleton({ count = 6 }: { count?: number }) {
     </div>
   );
 }
-
-/* ── Featured Card (hero, first feed track) ───────────────── */
-
-const FeaturedCard = React.memo(
-  function FeaturedCard({ item, queue }: { item: FeedItem; queue: Track[] }) {
-    const { t } = useTranslation();
-    const track = item.origin as Track;
-    const { isThisPlaying, togglePlay } = useTrackPlay(track, queue);
-    const navigate = useNavigate();
-    const isRepost = item.type.includes('repost');
-    const cover = art(track.artwork_url);
-    const avatar = art(track.user.avatar_url, 'small');
-
-    return (
-      <div
-        className="relative rounded-3xl overflow-hidden group glass-featured"
-        onMouseEnter={() => preloadTrack(track.urn)}
-      >
-        {/* Blurred artwork background */}
-        {cover && (
-          <div className="absolute inset-0 pointer-events-none">
-            <img
-              src={cover}
-              alt=""
-              className="w-full h-full object-cover scale-[1.4] blur-[80px] opacity-20 saturate-150"
-            />
-            <div className="absolute inset-0 bg-gradient-to-r from-[rgb(8,8,10)]/70 via-[rgb(8,8,10)]/50 to-[rgb(8,8,10)]/70" />
-          </div>
-        )}
-
-        {/* Content */}
-        <div className="relative flex items-center gap-6 p-6">
-          {/* Artwork */}
-          <div
-            className="relative w-[160px] h-[160px] rounded-2xl overflow-hidden shrink-0 shadow-2xl ring-1 ring-white/[0.1] cursor-pointer group/cover"
-            onClick={togglePlay}
-          >
-            {cover ? (
-              <img
-                src={cover}
-                alt={track.title}
-                className="w-full h-full object-cover transition-transform duration-500 ease-[var(--ease-apple)] group-hover/cover:scale-[1.05]"
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.04] to-white/[0.01]">
-                <Music size={40} className="text-white/15" />
-              </div>
-            )}
-
-            {/* Hover play overlay on artwork */}
-            <div
-              className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${
-                isThisPlaying
-                  ? 'bg-black/30 opacity-100'
-                  : 'bg-black/0 opacity-0 group-hover/cover:bg-black/30 group-hover/cover:opacity-100'
-              }`}
-            >
-              <div
-                className={`w-12 h-12 rounded-full flex items-center justify-center shadow-xl transition-all duration-300 ease-[var(--ease-apple)] ${
-                  isThisPlaying
-                    ? 'bg-white scale-100'
-                    : 'bg-white/90 scale-75 group-hover/cover:scale-100'
-                }`}
-              >
-                {isThisPlaying ? pauseBlack18 : playBlack18}
-              </div>
-            </div>
-          </div>
-
-          {/* Track info */}
-          <div className="flex-1 min-w-0 py-1">
-            {isRepost && (
-              <div className="flex items-center gap-1.5 mb-2.5 text-[11px] text-white/30 font-medium">
-                <Repeat2 size={11} />
-                <span>{t('home.reposted')}</span>
-                <span className="text-white/15">·</span>
-                <span>{ago(item.created_at)}</span>
-              </div>
-            )}
-
-            <h2
-              className="text-xl font-bold text-white/95 truncate leading-tight cursor-pointer hover:text-white transition-colors duration-200"
-              onClick={() => navigate(`/track/${encodeURIComponent(track.urn)}`)}
-            >
-              {track.title}
-            </h2>
-
-            <div
-              className="flex items-center gap-2 mt-2 cursor-pointer group/artist"
-              onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
-            >
-              {avatar && (
-                <img
-                  src={avatar}
-                  alt=""
-                  className="w-5 h-5 rounded-full ring-1 ring-white/[0.08] group-hover/artist:ring-white/[0.15] transition-all duration-150"
-                />
-              )}
-              <p className="text-[13px] text-white/40 truncate group-hover/artist:text-white/60 transition-colors duration-150">
-                {track.user.username}
-              </p>
-            </div>
-
-            <div className="flex items-center gap-3 mt-4 flex-wrap">
-              {track.genre && (
-                <span className="text-[10px] font-medium px-2.5 py-1 rounded-full bg-white/[0.06] text-white/45 border border-white/[0.06]">
-                  {track.genre}
-                </span>
-              )}
-              <div className="flex items-center gap-3 text-[11px] text-white/25 tabular-nums">
-                <span className="flex items-center gap-1">
-                  <Headphones size={11} />
-                  {fc(track.playback_count)}
-                </span>
-                <span className="flex items-center gap-1">
-                  <Heart size={11} />
-                  {fc(track.favoritings_count ?? track.likes_count)}
-                </span>
-                <span>{dur(track.duration)}</span>
-                {!isRepost && <span>{ago(item.created_at)}</span>}
-              </div>
-            </div>
-          </div>
-
-          {/* Large play button */}
-          <button
-            type="button"
-            onClick={togglePlay}
-            className={`w-14 h-14 rounded-full flex items-center justify-center shrink-0 transition-all duration-300 ease-[var(--ease-apple)] shadow-xl cursor-pointer ${
-              isThisPlaying
-                ? 'bg-white scale-100'
-                : 'bg-white/90 hover:bg-white hover:scale-105 active:scale-95'
-            }`}
-          >
-            {isThisPlaying ? pauseBlack22 : playBlack22}
-          </button>
-        </div>
-      </div>
-    );
-  },
-  (prev, next) => prev.item.origin.urn === next.item.origin.urn,
-);
 
 /* ── Feed Track Card (compact horizontal) ─────────────────── */
 
@@ -531,25 +372,6 @@ const FeedPlaylistCard = React.memo(
 
 /* ── Isolated Sections ────────────────────────────────────── */
 
-const FeaturedHero = React.memo(function FeaturedHero() {
-  const { items, isLoading } = useFeed();
-
-  const featuredItem = useMemo(() => items.find((i) => i.type.includes('track')), [items]);
-  const feedTrackQueue = useMemo(
-    () => items.filter((i) => i.type.includes('track')).map((i) => i.origin as Track),
-    [items],
-  );
-
-  if (isLoading) return <FeaturedSkeleton />;
-  if (!featuredItem) return null;
-
-  return (
-    <section>
-      <FeaturedCard item={featuredItem} queue={feedTrackQueue} />
-    </section>
-  );
-});
-
 const FallbackShelf = React.memo(function FallbackShelf() {
   const { t } = useTranslation();
   const user = useAuthStore((s) => s.user);
@@ -640,6 +462,45 @@ const FollowingShelf = React.memo(function FollowingShelf() {
   );
 });
 
+const MixShelf = React.memo(function MixShelf() {
+  const { tracks: likedTracks } = useLikedTracks(50);
+  const { data: pool, isLoading } = useRelatedPool(likedTracks);
+  const recommendedTracks = useRecommendedTracks(pool, 6); // Just top 6 for mixes
+
+  const mixColors = ['#ff5500', '#00ffcc', '#ff00ff', '#f0f000', '#0099ff', '#ff3300'];
+
+  if (!isLoading && recommendedTracks.length === 0) return null;
+
+  return (
+    <section>
+      <SectionHeader
+        title="Миксы для тебя"
+        icon={<Headphones size={15} className="text-accent" />}
+      />
+      <HorizontalScroll>
+        {isLoading ? (
+          <ShelfSkeleton count={6} />
+        ) : (
+          recommendedTracks.map((track, i) => (
+            <MixCard
+              key={track.urn}
+              index={i}
+              title={track.title}
+              subtitle={track.user.username}
+              artworkUrl={art(track.artwork_url, 't500x500') ?? undefined}
+              color={mixColors[i % mixColors.length]}
+              onClick={() => {
+                const { play } = usePlayerStore.getState();
+                play(track, recommendedTracks);
+              }}
+            />
+          ))
+        )}
+      </HorizontalScroll>
+    </section>
+  );
+});
+
 const DiscoverSection = React.memo(function DiscoverSection() {
   const { t } = useTranslation();
   const { tracks: likedTracks } = useLikedTracks(100);
@@ -652,8 +513,7 @@ const DiscoverSection = React.memo(function DiscoverSection() {
   const discoverData = useDiscoverData(pool, likedTracks);
   const [activeGenre, setActiveGenre] = useState<string | null>(null);
   const genres = useMemo(() => discoverData.map((d) => d.genre), [discoverData]);
-  const selectedGenre =
-    activeGenre && genres.includes(activeGenre) ? activeGenre : (genres[0] ?? null);
+  const selectedGenre = (typeof activeGenre === 'string' && genres.includes(activeGenre) ? activeGenre : genres[0]) ?? undefined;
   const genreTracks = useMemo(
     () => discoverData.find((d) => d.genre === selectedGenre)?.tracks ?? [],
     [discoverData, selectedGenre],
@@ -783,18 +643,18 @@ export function Home() {
   const user = useAuthStore((s) => s.user);
 
   return (
-    <div className="p-6 pb-4 space-y-8">
-      {/* Hero Greeting — no data hooks, won't re-render */}
-      <section className="pt-1">
-        <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-white via-white/80 to-accent/80 bg-clip-text text-transparent leading-tight pb-1">
+    <div className="p-6 pb-20 space-y-12">
+      {/* Hero Greeting */}
+      <section className="pt-2">
+        <h1 className="text-4xl font-bold tracking-tight greeting-gradient leading-[1.15] animate-fade-in-up">
           {t(greetingKey())}
           {user?.username ? `, ${user.username}` : ''}
         </h1>
-        <div className="mt-3 h-px bg-gradient-to-r from-white/[0.06] via-white/[0.03] to-transparent" />
+        <div className="mt-5 h-px bg-gradient-to-r from-white/[0.08] via-white/[0.04] to-transparent w-full" />
       </section>
 
-      {/* Each section is isolated — own hooks, own re-render boundary */}
-      <FeaturedHero />
+      <SoundWaveHero />
+      <MixShelf />
       <FallbackShelf />
       <LikedShelf />
       <FollowingShelf />

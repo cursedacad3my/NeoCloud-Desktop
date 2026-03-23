@@ -61,6 +61,8 @@ export interface SettingsState {
   youtubeClientId: string;
   youtubeClientSecret: string;
   sidebarCollapsed: boolean;
+  crossfadeEnabled: boolean;
+  crossfadeDuration: number;
   floatingComments: boolean;
   visualizerStyle: 'Off' | 'Bars' | 'Wave' | 'Pulse';
   visualizerPlaybar: boolean;
@@ -80,6 +82,7 @@ export interface SettingsState {
   unlockFramerate: boolean;
   showFpsCounter: boolean;
   hardwareAcceleration: boolean;
+  classicPlaybar: boolean;
   setAccentColor: (color: string) => void;
   setBgPrimary: (bg: string) => void;
   setThemePreset: (id: ThemePreset) => void;
@@ -94,6 +97,8 @@ export interface SettingsState {
   setSpotifyClientId: (id: string) => void;
   setYoutubeClientId: (id: string) => void;
   setYoutubeClientSecret: (secret: string) => void;
+  setCrossfadeEnabled: (v: boolean) => void;
+  setCrossfadeDuration: (v: number) => void;
   toggleSidebar: () => void;
   setFloatingComments: (v: boolean) => void;
   setVisualizerStyle: (style: 'Off' | 'Bars' | 'Wave' | 'Pulse') => void;
@@ -114,6 +119,7 @@ export interface SettingsState {
   setUnlockFramerate: (unlocked: boolean) => void;
   setShowFpsCounter: (show: boolean) => void;
   setHardwareAcceleration: (enabled: boolean) => void;
+  setClassicPlaybar: (v: boolean) => void;
   resetTheme: () => void;
 }
 
@@ -133,6 +139,8 @@ const DEFAULTS = {
   spotifyClientId: '',
   youtubeClientId: '',
   youtubeClientSecret: '',
+  crossfadeEnabled: false,
+  crossfadeDuration: 6,
   sidebarCollapsed: false,
   floatingComments: true,
   visualizerStyle: 'Wave' as const,
@@ -153,6 +161,7 @@ const DEFAULTS = {
   unlockFramerate: false,
   showFpsCounter: false,
   hardwareAcceleration: true,
+  classicPlaybar: false,
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -193,6 +202,8 @@ export const useSettingsStore = create<SettingsState>()(
       setSpotifyClientId: (spotifyClientId) => set({ spotifyClientId }),
       setYoutubeClientId: (youtubeClientId) => set({ youtubeClientId }),
       setYoutubeClientSecret: (youtubeClientSecret) => set({ youtubeClientSecret }),
+      setCrossfadeEnabled: (crossfadeEnabled) => set({ crossfadeEnabled }),
+      setCrossfadeDuration: (crossfadeDuration) => set({ crossfadeDuration }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setFloatingComments: (floatingComments) => set({ floatingComments }),
       setVisualizerStyle: (visualizerStyle) => set({ visualizerStyle }),
@@ -219,6 +230,7 @@ export const useSettingsStore = create<SettingsState>()(
       },
       setShowFpsCounter: (showFpsCounter) => set({ showFpsCounter }),
       setHardwareAcceleration: (hardwareAcceleration) => set({ hardwareAcceleration }),
+      setClassicPlaybar: (classicPlaybar) => set({ classicPlaybar }),
       resetTheme: () => set(DEFAULTS),
     }),
     {
@@ -245,6 +257,7 @@ export const useSettingsStore = create<SettingsState>()(
         unlockFramerate: s.unlockFramerate,
         showFpsCounter: s.showFpsCounter,
         hardwareAcceleration: s.hardwareAcceleration,
+        classicPlaybar: s.classicPlaybar,
         // Visualizer settings
         visualizerStyle: s.visualizerStyle,
         visualizerPlaybar: s.visualizerPlaybar,

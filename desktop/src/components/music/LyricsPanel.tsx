@@ -352,16 +352,20 @@ const SyncedLyrics = React.memo(({ lines }: { lines: LyricLine[] }) => {
     <div
       ref={containerRef}
       className="flex-1 overflow-y-auto scrollbar-hide px-12 py-16 relative"
-      style={{
-        maskImage: 'linear-gradient(transparent 0%, black 10%, black 90%, transparent 100%)',
-      }}
     >
-      {lines.map((line, i) => (
-        <div key={`${line.time}-${i}`} className="lyric-line" onClick={() => seek(line.time)}>
-          {line.text}
-        </div>
-      ))}
-      <div className="h-[40vh]" />
+      <div className="flex flex-col gap-2">
+        {lines.map((line, i) => (
+          <div 
+             key={`${line.time}-${i}`} 
+             className="lyric-line cursor-pointer origin-left transition-all duration-500 ease-[var(--ease-apple)] will-change-transform py-2.5 data-[state=active]:text-white data-[state=active]:scale-[1.03] data-[state=active]:opacity-100 data-[state=past]:text-white/20 data-[state=past]:scale-[0.97] text-[28px] font-bold tracking-tight text-white/40 scale-[0.97] pr-12 hover:text-white/60 antialiased" 
+             style={{ textRendering: 'optimizeLegibility' }}
+             onClick={() => seek(line.time)}
+          >
+            {line.text}
+          </div>
+        ))}
+      </div>
+      <div className="h-[50vh]" />
     </div>
   );
 });
@@ -571,7 +575,7 @@ export const ArtworkPanel = React.memo(() => {
         <TrackColumn track={track} maxArt="max-w-[420px]" />
       </div>
 
-      <FloatingComments side="right" />
+      <FloatingComments />
     </div>
   );
 });

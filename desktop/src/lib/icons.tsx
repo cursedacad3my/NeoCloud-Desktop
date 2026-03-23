@@ -8,6 +8,7 @@
 import {
   AlertCircle as _AlertCircle,
   AudioLines as _AudioLines,
+  Ban as _Ban,
   Calendar as _Calendar,
   Check as _Check,
   ChevronDown as _ChevronDown,
@@ -87,6 +88,7 @@ const SimpleIcon = memo(
 
 // ── Memo-wrapped icon components ────────────────────────────
 export const AlertCircle = memo(_AlertCircle);
+export const Ban = memo(_Ban);
 export const Calendar = memo(_Calendar);
 export const Check = memo(_Check);
 export const ClipboardCopy = memo(_ClipboardCopy);

@@ -65,3 +65,27 @@ export class ApiError extends Error {
 export function streamUrl(trackUrn: string, format = 'http_mp3_128') {
   return `${API_BASE}/tracks/${encodeURIComponent(trackUrn)}/stream?format=${format}${sessionId ? `&session_id=${sessionId}` : ''}`;
 }
+
+export interface TrackComment {
+  id: number;
+  body: string;
+  created_at: string;
+  timestamp: number;
+  user: {
+    urn: string;
+    username: string;
+    avatar_url: string;
+  };
+}
+
+export async function getTrackComments(trackUrn: string): Promise<TrackComment[]> {
+  try {
+    const urnParts = trackUrn.split(':');
+    const id = urnParts[urnParts.length - 1]; // get the numeric ID part
+    const res = await api<{ collection: TrackComment[] }>(`/tracks/${id}/comments?limit=200&offset=0&threaded=0`);
+    return res.collection || [];
+  } catch (e) {
+    console.error('Failed to fetch comments', e);
+    return [];
+  }
+}

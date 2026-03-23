@@ -3,12 +3,14 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { artworkPanelApi } from '../../components/music/LyricsPanel';
-import { api } from '../../lib/api';
+import { useTranslation } from 'react-i18next';
+import { api, getTrackComments } from '../../lib/api';
 import { getCurrentTime, getSmoothCurrentTime, getDuration, handlePrev, seek, subscribe } from '../../lib/audio';
 import { art, formatTime } from '../../lib/formatters';
 import { invalidateAllLikesCache } from '../../lib/hooks';
 import {
   audioLines16,
+  Ban,
   Heart,
   listMusic16,
   MicVocal,
@@ -23,9 +25,12 @@ import {
   volume2Icon16,
   volumeXIcon16,
 } from '../../lib/icons';
+import { updateDiscordLyric } from '../../lib/discord';
 import { optimisticToggleLike } from '../../lib/likes';
+import { searchLyrics } from '../../lib/lyrics';
 import { useLyricsStore } from '../../stores/lyrics';
 import { usePlayerStore, type Track } from '../../stores/player';
+import { useDislikesStore } from '../../stores/dislikes';
 import { useSettingsStore } from '../../stores/settings';
 import { EqualizerPanel } from '../music/EqualizerPanel';
 import { Visualizer } from '../music/Visualizer';
@@ -34,6 +39,15 @@ import { Visualizer } from '../music/Visualizer';
 
 export const ProgressSlider = React.memo(() => {
   const duration = useSyncExternalStore(subscribe, getDuration);
+  const currentTrack = usePlayerStore((s) => s.currentTrack);
+  const { floatingComments, classicPlaybar } = useSettingsStore();
+
+  const { data: comments } = useQuery({
+    queryKey: ['comments', currentTrack?.urn],
+    queryFn: () => getTrackComments(currentTrack!.urn),
+    enabled: !!currentTrack && floatingComments,
+    staleTime: 60 * 60 * 1000,
+  });
 
   const [dragging, setDragging] = useState(false);
   const [dragValue, setDragValue] = useState(0);
@@ -42,6 +56,48 @@ export const ProgressSlider = React.memo(() => {
   const draggingRef = useRef(false);
   const rangeRef = useRef<HTMLSpanElement>(null);
   const thumbRef = useRef<HTMLSpanElement>(null);
+
+  // Waveform Mask Logic
+  const [maskUri, setMaskUri] = useState<string>('');
+  useEffect(() => {
+    const url = currentTrack?.waveform_url;
+    if (!url) {
+      setMaskUri('');
+      return;
+    }
+    const jsonUrl = url.replace(/\.[^.]+$/, '.json');
+    fetch(jsonUrl)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!d || !d.samples) return;
+        const s = d.samples;
+        const c = document.createElement('canvas');
+        const w = 1200;
+        const h = 40;
+        c.width = w;
+        c.height = h;
+        const ctx = c.getContext('2d');
+        if (!ctx) return;
+        ctx.fillStyle = 'black';
+        const max = Math.max(...s) || 1;
+        const barW = 2;
+        const gap = 1.5;
+        const step = barW + gap;
+        for (let i = 0; i < w; i += step) {
+          const idx = Math.floor((i / w) * s.length);
+          const amp = s[idx] / max;
+          const barH = Math.max(2, amp * h);
+          ctx.beginPath();
+          ctx.roundRect(i, (h - barH) / 2, barW, barH, 2);
+          ctx.fill();
+        }
+        setMaskUri(c.toDataURL());
+      })
+      .catch((e) => {
+        console.warn('Waveform load failed', e);
+        setMaskUri('');
+      });
+  }, [currentTrack?.waveform_url]);
 
   // Direct DOM updates at 60fps+ — zero React re-renders for the visual thumb
   useEffect(() => {
@@ -90,26 +146,57 @@ export const ProgressSlider = React.memo(() => {
     setSyncedValue(v);
   }, []);
 
+  // Markers (little dots) on the track
+  const markers = React.useMemo(() => {
+    if (!comments || !duration) return null;
+    return comments
+      .filter((c) => c.timestamp != null)
+      .map((c) => {
+        const left = (c.timestamp! / (duration * 1000)) * 100;
+        return (
+          <div
+            key={c.id}
+            className={`absolute top-1/2 -translate-y-1/2 w-0.5 h-0.5 rounded-full pointer-events-none ${
+              maskUri && !classicPlaybar ? 'bg-white/30' : 'bg-white/10'
+            }`}
+            style={{ left: `${left}%` }}
+          />
+        );
+      });
+  }, [comments, duration, maskUri, classicPlaybar]);
+
   return (
-    <Slider.Root
-      className="relative flex items-center w-full h-5 cursor-pointer group select-none touch-none"
-      value={[displayValue]}
-      max={duration || 1}
-      step={0.1}
-      onValueChange={onValueChange}
-      onValueCommit={onValueCommit}
-    >
-      <Slider.Track className="relative h-[3px] grow rounded-full bg-white/[0.08] group-hover:h-[5px] transition-all duration-150">
-        <Slider.Range
-          ref={rangeRef}
-          className="absolute h-full rounded-full bg-accent will-change-transform"
-        />
-      </Slider.Track>
-      <Slider.Thumb
-        ref={thumbRef}
-        className="block w-3 h-3 rounded-full bg-accent shadow-[0_0_10px_var(--color-accent-glow)] scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 outline-none will-change-transform"
-      />
-    </Slider.Root>
+    <div className="relative w-full flex items-center group/slider z-20">
+      <Slider.Root
+        className={`relative flex items-center w-full cursor-pointer select-none touch-none group/slider ${maskUri && !classicPlaybar ? 'h-6' : 'h-5'}`}
+        value={[displayValue]}
+        max={duration || 1}
+        step={0.1}
+        onValueChange={onValueChange}
+        onValueCommit={onValueCommit}
+      >
+        <Slider.Track 
+          className={`relative grow transition-all duration-150 overflow-hidden ${maskUri && !classicPlaybar ? 'h-full' : 'h-[3px] rounded-full group-hover/slider:h-[5px]'}`}
+          style={maskUri && !classicPlaybar ? { 
+            maskImage: `url(${maskUri})`, maskSize: '100% 100%', 
+            WebkitMaskImage: `url(${maskUri})`, WebkitMaskSize: '100% 100%' 
+          } : undefined}
+        >
+          <div className="absolute inset-0 bg-white/[0.08]" />
+          <Slider.Range
+            ref={rangeRef}
+            className={`absolute h-full will-change-transform ${maskUri ? 'bg-accent/90' : 'bg-accent rounded-full'}`}
+          />
+          {markers}
+        </Slider.Track>
+        {(!maskUri || classicPlaybar) && (
+          <Slider.Thumb
+            ref={thumbRef}
+            className="block w-3 h-3 rounded-full bg-accent shadow-[0_0_10px_var(--color-accent-glow)] scale-0 opacity-0 group-hover/slider:scale-100 group-hover/slider:opacity-100 transition-all duration-150 outline-none will-change-transform"
+          />
+        )}
+      </Slider.Root>
+    </div>
   );
 });
 
@@ -258,6 +345,33 @@ function LikeButton({ trackUrn }: { trackUrn: string }) {
   );
 }
 
+/* ── Dislike (Block) button ──────────────────────────────────── */
+
+function DislikeButton({ trackUrn }: { trackUrn: string }) {
+  const isDisliked = useDislikesStore((s) => s.dislikedTrackUrns.includes(trackUrn));
+  const toggle = useDislikesStore((s) => s.toggleDislike);
+  const next = usePlayerStore((s) => s.next);
+  const { t } = useTranslation();
+
+  const handleToggle = () => {
+    toggle(trackUrn);
+    if (!isDisliked) next();
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleToggle}
+      title={t('track.dislike', "Don't play this track")}
+      className={`w-9 h-9 flex items-center justify-center shrink-0 transition-all duration-200 cursor-pointer hover:bg-white/[0.04] ${
+        isDisliked ? 'text-red-500 hover:text-red-400 opacity-100' : 'text-white/20 hover:text-red-400/80 opacity-0 group-hover/trackinfo:opacity-100'
+      }`}
+    >
+      <Ban size={14} />
+    </button>
+  );
+}
+
 /* ── Isolated control buttons ────────────────────────────────── */
 
 const btnClass = (active: boolean, size: 'default' | 'sm') =>
@@ -400,7 +514,10 @@ const TrackInfo = React.memo(() => {
           {currentTrack.user.username}
         </p>
       </div>
-      <LikeButton trackUrn={currentTrack.urn} />
+      <div className="flex items-center -mr-2">
+        <LikeButton trackUrn={currentTrack.urn} />
+        <DislikeButton trackUrn={currentTrack.urn} />
+      </div>
     </div>
   );
 });
@@ -452,12 +569,51 @@ const PlaybarVisualizer = React.memo(() => {
   );
 });
 
+/* ── Global Discord Lyrics Syncer ────────────────────────────── */
+
+const DiscordLyricsSyncer = React.memo(() => {
+  const currentTrack = usePlayerStore((s) => s.currentTrack);
+  
+  const { data: lyrics } = useQuery({
+    queryKey: ['lyrics', currentTrack?.urn, currentTrack?.user.username, currentTrack?.title],
+    queryFn: () => searchLyrics(currentTrack!.user.username, currentTrack!.title),
+    enabled: !!currentTrack,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+
+  useEffect(() => {
+    if (!lyrics?.synced) {
+      updateDiscordLyric(null);
+      return;
+    }
+
+    const unsub = subscribe(() => {
+      const t = getCurrentTime();
+      let activeText: string | null = null;
+      
+      for (let i = lyrics.synced!.length - 1; i >= 0; i--) {
+        if (t >= lyrics.synced![i].time) {
+          activeText = lyrics.synced![i].text;
+          break;
+        }
+      }
+      
+      updateDiscordLyric(activeText);
+    });
+    
+    return unsub;
+  }, [lyrics]);
+
+  return null;
+});
+
 /* ── NowPlayingBar ───────────────────────────────────────────── */
 
 export const NowPlayingBar = React.memo(
   ({ onQueueToggle, queueOpen }: { onQueueToggle: () => void; queueOpen: boolean }) => {
     return (
-      <div className="shrink-0 relative">
+      <div className="shrink-0 relative group/trackinfo">
+        <DiscordLyricsSyncer />
         <BackgroundGlow />
         
         {useSettingsStore((s) => s.visualizerPlaybar) && <PlaybarVisualizer />}

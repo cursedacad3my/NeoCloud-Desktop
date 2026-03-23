@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { tauriStorage } from '../lib/tauri-storage';
+import { useDislikesStore } from './dislikes';
 
 export interface Track {
   id: number;
@@ -142,13 +143,28 @@ export const usePlayerStore = create<PlayerState>()(
         if (queue.length === 0) return;
 
         let nextIdx = queueIndex + 1;
+        let attempts = 0;
 
-        if (nextIdx >= queue.length) {
-          if (repeat === 'all') nextIdx = 0;
-          else {
-            set({ isPlaying: false });
-            return;
+        while (attempts < queue.length) {
+          if (nextIdx >= queue.length) {
+            if (repeat === 'all') nextIdx = 0;
+            else {
+              set({ isPlaying: false });
+              return;
+            }
           }
+
+          const track = queue[nextIdx];
+          const isDisliked = useDislikesStore.getState().dislikedTrackUrns.includes(track.urn);
+          if (!isDisliked) break;
+
+          nextIdx++;
+          attempts++;
+        }
+
+        if (attempts >= queue.length) {
+          set({ isPlaying: false });
+          return;
         }
 
         set({
@@ -160,7 +176,22 @@ export const usePlayerStore = create<PlayerState>()(
 
       prev: () => {
         const { queue, queueIndex } = get();
-        const prevIdx = Math.max(0, queueIndex - 1);
+        if (queue.length === 0) return;
+
+        let prevIdx = queueIndex - 1;
+        let attempts = 0;
+
+        while (attempts < queue.length && prevIdx > 0) {
+          const track = queue[prevIdx];
+          const isDisliked = useDislikesStore.getState().dislikedTrackUrns.includes(track.urn);
+          if (!isDisliked) break;
+          
+          prevIdx--;
+          attempts++;
+        }
+        
+        prevIdx = Math.max(0, prevIdx);
+
         set({
           currentTrack: queue[prevIdx],
           queueIndex: prevIdx,

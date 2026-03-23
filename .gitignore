@@ -17,3 +17,8 @@ desktop/src-tauri/target/
 
 # FireBase
 .firebase
+
+# Internal tool/temp
+.agents/
+tmp-repo/
+test-apis.js

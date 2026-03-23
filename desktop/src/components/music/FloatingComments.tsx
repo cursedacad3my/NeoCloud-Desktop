@@ -1,10 +1,20 @@
 import React, { useEffect, useRef } from 'react';
 import { getCurrentTime, subscribe } from '../../lib/audio';
 import { art } from '../../lib/formatters';
-import type { Comment } from '../../lib/hooks';
-import { useTrackComments } from '../../lib/hooks';
+import { api } from '../../lib/api';
 import { usePlayerStore } from '../../stores/player';
 import { useSettingsStore } from '../../stores/settings';
+import { useQuery } from '@tanstack/react-query';
+
+interface Comment {
+  id: number;
+  body: string;
+  timestamp: number | null;
+  user: {
+    username: string;
+    avatar_url: string;
+  };
+}
 
 interface Pill {
   id: number;
@@ -20,37 +30,36 @@ function getMaxVisible(): number {
   return 4;
 }
 
-export const FloatingComments = React.memo(function FloatingComments({
-  side = 'center',
-}: {
-  side?: 'center' | 'right';
-}) {
+export const FloatingComments: React.FC = () => {
   const enabled = useSettingsStore((s) => s.floatingComments);
-  const trackUrn = usePlayerStore((s) => s.currentTrack?.urn);
+  const currentTrack = usePlayerStore((s) => s.currentTrack);
+  const trackUrn = currentTrack?.urn;
 
-  if (!enabled || !trackUrn) return null;
-  return <FloatingCommentsInner trackUrn={trackUrn} side={side} />;
-});
+  const { data: comments } = useQuery({
+    queryKey: ['comments', trackUrn],
+    queryFn: async () => {
+      const res = await api<{ collection: Comment[] }>(`/tracks/${encodeURIComponent(trackUrn!)}/comments?limit=200`);
+      return res.collection || [];
+    },
+    enabled: !!trackUrn && enabled,
+    staleTime: 60 * 60 * 1000,
+  });
 
-const FloatingCommentsInner = React.memo(function FloatingCommentsInner({
-  trackUrn,
-  side,
-}: {
-  trackUrn: string;
-  side: 'center' | 'right';
-}) {
+  if (!enabled || !trackUrn || !comments) return null;
+  return <FloatingCommentsInner comments={comments} />;
+};
+
+const FloatingCommentsInner: React.FC<{ comments: Comment[] }> = ({ comments }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const pillsRef = useRef<Pill[]>([]);
   const shownIds = useRef(new Set<number>());
   const nextPillId = useRef(0);
 
-  const { comments } = useTrackComments(trackUrn);
-
-  // Filter comments with timestamp and body
-  const timedComments = useRef<Comment[]>([]);
   useEffect(() => {
-    timedComments.current = comments.filter((c) => c.timestamp != null && c.body);
     shownIds.current.clear();
+    // Clear existing pills on track change
+    if (containerRef.current) containerRef.current.innerHTML = '';
+    pillsRef.current = [];
   }, [comments]);
 
   useEffect(() => {
@@ -58,7 +67,7 @@ const FloatingCommentsInner = React.memo(function FloatingCommentsInner({
 
     const unsub = subscribe(() => {
       const now = Date.now();
-      if (now - lastCheck < 500) return; // throttle 500ms
+      if (now - lastCheck < 500) return;
       lastCheck = now;
 
       const currentMs = getCurrentTime() * 1000;
@@ -68,11 +77,18 @@ const FloatingCommentsInner = React.memo(function FloatingCommentsInner({
       const maxVisible = getMaxVisible();
 
       // Check for new comments to show
-      for (const c of timedComments.current) {
+      for (const c of comments) {
         if (shownIds.current.has(c.id)) continue;
         if (c.timestamp == null) continue;
-        if (Math.abs(c.timestamp - currentMs) < 2000) {
-          if (pillsRef.current.length >= maxVisible) break;
+        
+        // Show if within 1.5s of current playback
+        if (Math.abs(c.timestamp - currentMs) < 1500) {
+          if (pillsRef.current.length >= maxVisible) {
+             // Remove oldest if limit reached
+             const oldest = pillsRef.current.shift();
+             if (oldest) removePill(container, oldest.id);
+          }
+          
           shownIds.current.add(c.id);
           const pill: Pill = { id: nextPillId.current++, comment: c, addedAt: now };
           pillsRef.current.push(pill);
@@ -80,69 +96,97 @@ const FloatingCommentsInner = React.memo(function FloatingCommentsInner({
         }
       }
 
-      // Remove expired pills (>5.5s)
+      // Auto-remove expired pills (>5.5s)
       const expired = pillsRef.current.filter((p) => now - p.addedAt > 5500);
       for (const p of expired) {
-        const el = container.querySelector(`[data-pill-id="${p.id}"]`) as HTMLElement | null;
-        if (el) {
-          el.style.opacity = '0';
-          el.style.transform = 'translateY(8px)';
-          setTimeout(() => el.remove(), 300);
-        }
+        removePill(container, p.id);
       }
       pillsRef.current = pillsRef.current.filter((p) => now - p.addedAt <= 5800);
     });
 
     return unsub;
-  }, []);
+  }, [comments]);
 
   return (
     <div
+      id="comments-overlay"
       ref={containerRef}
-      className={`absolute bottom-4 z-50 flex flex-col-reverse gap-2 pointer-events-none ${
-        side === 'right'
-          ? 'right-6 items-end'
-          : 'left-1/2 -translate-x-1/2 items-center'
-      }`}
+      className="fixed bottom-[100px] left-1/2 -translate-x-1/2 z-[160] pointer-events-none flex flex-col items-center gap-[10px]"
     />
   );
-});
+};
 
 function renderPill(container: HTMLDivElement, pill: Pill) {
   const { comment } = pill;
   const el = document.createElement('div');
   el.setAttribute('data-pill-id', String(pill.id));
-  el.className =
-    'flex items-center gap-2.5 px-4 py-2 rounded-full backdrop-blur-xl border border-white/10 pointer-events-auto transition-all duration-300 ease-out';
-  el.style.cssText = 'background: rgba(255,255,255,0.08); transform: scale(0.5); opacity: 0;';
+  
+  // MusiCenter Base Styles
+  el.className = 'timed-comment entering flex items-center gap-2.5 bg-black/60 backdrop-blur-xl border border-white/10 shadow-[0_10px_40px_rgba(0,0,0,0.5)] pointer-events-auto transition-all duration-[500ms] cubic-bezier(0.16, 1, 0.3, 1) overflow-hidden whitespace-nowrap';
+  
+  // Entering state logic (mirrors MusiCenter CSS)
+  el.style.opacity = '0';
+  el.style.transform = 'scale(0.35)';
+  el.style.borderRadius = '50%';
+  el.style.maxWidth = '44px';
+  el.style.padding = '8px';
 
   const avatar = document.createElement('img');
   avatar.src = art(comment.user.avatar_url, 'small') || '';
-  avatar.className = 'w-7 h-7 rounded-full object-cover shrink-0';
+  avatar.className = 'w-[28px] h-[28px] rounded-full object-cover shrink-0';
   avatar.alt = '';
 
+  const bodyWrap = document.createElement('div');
+  bodyWrap.className = 'flex items-center gap-2 overflow-hidden opacity-0 transition-opacity duration-300 delay-250';
+  bodyWrap.style.maxWidth = '380px';
+
   const body = document.createElement('span');
-  body.className = 'text-[13px] text-white/80 max-w-[300px] truncate';
+  body.className = 'text-[13px] text-white/90 font-semibold leading-snug truncate';
   body.textContent = comment.body;
 
-  el.appendChild(avatar);
-  el.appendChild(body);
+  bodyWrap.appendChild(body);
 
   if (comment.timestamp != null) {
     const ts = document.createElement('span');
     const sec = Math.floor(comment.timestamp / 1000);
     const m = Math.floor(sec / 60);
     const s = sec % 60;
-    ts.className = 'text-[11px] text-white/30 tabular-nums shrink-0';
+    ts.className = 'text-[10px] text-white/35 tabular-nums shrink-0 font-medium';
     ts.textContent = `${m}:${String(s).padStart(2, '0')}`;
-    el.appendChild(ts);
+    bodyWrap.appendChild(ts);
   }
 
-  container.prepend(el);
+  el.appendChild(avatar);
+  el.appendChild(bodyWrap);
 
-  // Trigger enter animation
+  container.appendChild(el);
+
+  // Trigger Visible state
   requestAnimationFrame(() => {
-    el.style.transform = 'scale(1)';
-    el.style.opacity = '1';
+    requestAnimationFrame(() => {
+      el.style.opacity = '1';
+      el.style.transform = 'scale(1)';
+      el.style.borderRadius = '20px';
+      el.style.maxWidth = '420px';
+      el.style.padding = '8px 16px 8px 8px';
+      bodyWrap.style.opacity = '1';
+    });
   });
+}
+
+function removePill(container: HTMLDivElement, pillId: number) {
+  const el = container.querySelector(`[data-pill-id="${pillId}"]`) as HTMLElement | null;
+  if (!el) return;
+  
+  // Exiting state
+  el.style.opacity = '0';
+  el.style.transform = 'scale(0.4)';
+  el.style.borderRadius = '50%';
+  el.style.maxWidth = '44px';
+  el.style.padding = '8px';
+  
+  const bodyWrap = el.querySelector('div');
+  if (bodyWrap) bodyWrap.style.opacity = '0';
+
+  setTimeout(() => el.remove(), 600);
 }

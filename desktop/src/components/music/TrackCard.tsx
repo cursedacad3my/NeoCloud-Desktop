@@ -7,6 +7,7 @@ import { ListMusic, ListPlus, pauseBlack20, playBlack20, playIcon32 } from '../.
 import { useTrackPlay } from '../../lib/useTrackPlay';
 import type { Track } from '../../stores/player';
 import { usePlayerStore } from '../../stores/player';
+import { useTilt } from '../../lib/hooks/useTilt';
 import { AddToPlaylistDialog } from './AddToPlaylistDialog';
 import { LikeButton } from './LikeButton';
 
@@ -28,8 +29,16 @@ export const TrackCard = React.memo(
       addToQueueNext([track]);
     };
 
+    const { ref, onMouseMove, onMouseLeave } = useTilt();
+
     return (
-      <div className="group relative" onMouseEnter={() => preloadTrack(track.urn)}>
+      <div
+        ref={ref}
+        className="group relative"
+        onMouseEnter={() => preloadTrack(track.urn)}
+        onMouseMove={onMouseMove}
+        onMouseLeave={onMouseLeave}
+      >
         {/* Artwork */}
         <div
           className="relative aspect-square rounded-2xl overflow-hidden bg-white/[0.03] cursor-pointer ring-1 ring-white/[0.06] group-hover:ring-white/[0.12] transition-all duration-300 ease-[var(--ease-apple)]"

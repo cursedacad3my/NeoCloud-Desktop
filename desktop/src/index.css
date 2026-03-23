@@ -141,6 +141,14 @@ body,
   }
 }
 
+/* ── MusiCenter Design ────────────────────────────────────── */
+.greeting-gradient {
+  background: linear-gradient(to right, white, rgba(255, 255, 255, 0.8), #ff5500);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
 .animate-fade-in-up {
   animation: fadeInUp 0.5s var(--ease-apple) both;
 }
@@ -214,28 +222,28 @@ body,
 /* ── Synced lyrics lines ─────────────────────────────────── */
 .lyric-line {
   cursor: pointer;
-  padding: 6px 0;
+  padding: 8px 0;
   line-height: 1.4;
-  font-size: 20px;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.3);
+  font-size: 28px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.4);
   transform-origin: left center;
-  transform: scale(1);
-  will-change: transform, color;
-  /* Only composite-friendly props — no font-size/opacity reflows */
+  will-change: transform, opacity;
   transition:
-    color 0.5s cubic-bezier(0.16, 1, 0.3, 1),
-    transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    color 0.4s var(--ease-apple),
+    opacity 0.4s var(--ease-apple),
+    transform 0.4s var(--ease-apple);
+  -webkit-font-smoothing: antialiased;
 }
 
 .lyric-line[data-state="active"] {
   color: #fff;
-  font-weight: 700;
-  transform: scale(1.2);
+  opacity: 1;
+  transform: scale(1.03);
 }
 
 .lyric-line[data-state="past"] {
-  color: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.2);
 }
 
 /* ── Hardware Acceleration Layers ─────────────────────────── */

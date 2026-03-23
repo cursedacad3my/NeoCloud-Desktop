@@ -54,7 +54,8 @@
     "lyricsLoading": "Ищем текст...",
     "download": "Скачать",
     "downloaded": "Скачано",
-    "preview": "Превью"
+    "preview": "Превью",
+    "dislike": "Больше не проигрывать этот трек"
   },
   "playlist": {
     "playAll": "Воспроизвести",
@@ -145,6 +146,8 @@
     "wallpaperAdded": "Обои добавлены",
     "bgLoadError": "Не удалось загрузить изображение",
     "bgOpacity": "Прозрачность фона",
+    "classicPlaybar": "Классический плейбар",
+    "classicPlaybarDesc": "Вернуться к обычному прогресс-бару в виде линии",
     "resetDefaults": "Сбросить",
     "account": "Аккаунт",
     "language": "Язык",

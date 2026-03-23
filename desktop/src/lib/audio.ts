@@ -17,6 +17,7 @@ let cachedTime = 0;
 let cachedDuration = 0;
 let loadGen = 0;
 let lastTickAt = 0;
+let isCrossfadingOut = false;
 // @ts-expect-error — used for stall detection interval
 let stallCheckTimer: ReturnType<typeof setInterval> | null = null; // eslint-disable-line
 const listeners = new Set<() => void>();
@@ -103,12 +104,16 @@ async function loadTrack(track: Track) {
   // Try cached file first
   const cachedPath = await getCacheFilePath(urn);
   if (gen !== loadGen) return;
+  
+  const settings = useSettingsStore.getState();
+  const crossfadeSecs = settings.crossfadeEnabled ? settings.crossfadeDuration : null;
 
   try {
     let result: { duration_secs: number | null };
     if (cachedPath) {
       result = await invoke<{ duration_secs: number | null }>('audio_load_file', {
         path: cachedPath,
+        crossfadeSecs
       });
     } else {
       const url = `${API_BASE}/tracks/${encodeURIComponent(urn)}/stream`;
@@ -117,6 +122,7 @@ async function loadTrack(track: Track) {
         url,
         sessionId: sessionId || null,
         cachePath: null,
+        crossfadeSecs
       });
       // Background cache for next time
       fetchAndCacheTrack(urn).catch(() => {});
@@ -163,6 +169,7 @@ async function loadTrack(track: Track) {
   updatePlaybackState(usePlayerStore.getState().isPlaying);
   updateMediaPosition();
   preloadQueue();
+  isCrossfadingOut = false;
 }
 
 function handleTrackEnd() {
@@ -190,6 +197,15 @@ listen<number>('audio:tick', (event) => {
   lastTickAt = Date.now();
   if (cachedDuration <= 0) cachedDuration = fallbackDuration;
   notify();
+
+  const settings = useSettingsStore.getState();
+  if (settings.crossfadeEnabled && cachedDuration > 0) {
+    const remaining = cachedDuration - cachedTime;
+    if (remaining <= settings.crossfadeDuration && remaining > 0 && !isCrossfadingOut) {
+      isCrossfadingOut = true;
+      handleTrackEnd();
+    }
+  }
 });
 
 listen('audio:ended', () => {

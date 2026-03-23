@@ -632,6 +632,8 @@ const PlaybackSection = React.memo(function PlaybackSection() {
   const setUnlockFramerate = useSettingsStore((s) => s.setUnlockFramerate);
   const setShowFpsCounter = useSettingsStore((s) => s.setShowFpsCounter);
   const setHardwareAcceleration = useSettingsStore((s) => s.setHardwareAcceleration);
+  const classicPlaybar = useSettingsStore((s) => s.classicPlaybar);
+  const setClassicPlaybar = useSettingsStore((s) => s.setClassicPlaybar);
   return (
     <section className="bg-white/[0.02] border border-white/[0.05] backdrop-blur-[60px] rounded-3xl p-6 shadow-xl space-y-5">
       <h3 className="text-[15px] font-bold text-white/80 tracking-tight">
@@ -656,6 +658,68 @@ const PlaybackSection = React.memo(function PlaybackSection() {
             }`}
           />
         </button>
+      </div>
+
+      <div className="border-t border-white/[0.04]" />
+
+      {/* Classic Playbar */}
+      <div className="flex items-center justify-between">
+        <div className="space-y-0.5">
+          <p className="text-[13px] text-white/70 font-medium">{t('settings.classicPlaybar')}</p>
+          <p className="text-[11px] text-white/30">{t('settings.classicPlaybarDesc')}</p>
+        </div>
+        <button
+          onClick={() => setClassicPlaybar(!classicPlaybar)}
+          className={`w-11 h-6 rounded-full transition-all duration-200 cursor-pointer relative ${
+            classicPlaybar ? 'bg-accent' : 'bg-white/10'
+          }`}
+        >
+          <div
+            className={`absolute top-0.5 w-5 h-5 rounded-full shadow-md transition-all duration-200 ${
+              classicPlaybar ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-white'
+            }`}
+          />
+        </button>
+      </div>
+
+      <div className="border-t border-white/[0.04]" />
+
+      {/* Crossfade */}
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <p className="text-[13px] text-white/70 font-medium">{t('settings.crossfade', 'Crossfade Mode')}</p>
+            <p className="text-[11px] text-white/30">{t('settings.crossfadeDesc', 'Smoothly fade between tracks')}</p>
+          </div>
+          <button
+            onClick={() => useSettingsStore.getState().setCrossfadeEnabled(!useSettingsStore.getState().crossfadeEnabled)}
+            className={`w-11 h-6 rounded-full transition-all duration-200 cursor-pointer relative ${
+              useSettingsStore.getState().crossfadeEnabled ? 'bg-accent' : 'bg-white/10'
+            }`}
+          >
+            <div
+              className={`absolute top-0.5 w-5 h-5 rounded-full shadow-md transition-all duration-200 ${
+                useSettingsStore.getState().crossfadeEnabled ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-white'
+              }`}
+            />
+          </button>
+        </div>
+
+        <div className={`transition-opacity duration-300 space-y-3 ${useSettingsStore.getState().crossfadeEnabled ? 'opacity-100' : 'opacity-30 pointer-events-none'}`}>
+          <div className="flex items-center justify-between">
+            <label className="text-[13px] text-white/60">{t('settings.crossfadeDuration', 'Duration')}</label>
+            <span className="text-[12px] text-white/40 tabular-nums">{useSettingsStore.getState().crossfadeDuration}s</span>
+          </div>
+          <input
+            type="range"
+            min={1}
+            max={15}
+            step={1}
+            value={useSettingsStore.getState().crossfadeDuration}
+            onChange={(e) => useSettingsStore.getState().setCrossfadeDuration(Number(e.target.value))}
+            className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[var(--color-accent)]"
+          />
+        </div>
       </div>
 
       <div className="border-t border-white/[0.04]" />

@@ -49,8 +49,14 @@ function clean(s: string): string {
       /\(.*?(remix|edit|version|mix|cover|live|acoustic|instrumental|original|prod).*?\)/gi,
       '',
     )
+    .replace(/\s+(feat\.?|ft\.?|featuring|prod\.?)\b.*$/gi, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/** Aggressively strip all parentheses and brackets */
+function stripBrackets(s: string): string {
+  return s.replace(/\([^)]*\)/g, '').replace(/\[[^\]]*\]/g, '').replace(/\s+/g, ' ').trim();
 }
 
 /** Strip everything non-alphanumeric (keep unicode letters) */
@@ -275,37 +281,57 @@ export async function searchLyrics(
   const sig = controller.signal;
 
   try {
-    // Determine artist/title
-    // NOTE: scUsername/scTitle are now purely the manually provided ones or the fallback ones.
     const parsed = splitArtistTitle(scTitle);
     const artist = parsed ? parsed[0] : scUsername;
     const title  = parsed ? parsed[1] : scTitle;
 
-    // 1. LRCLib — best source (has synced), try both parsed and fallback
-    let r = await searchLrclib(artist, title, sig);
-    if (r) return r;
-
-    // If not from parsed, also try with scUsername as artist
-    if (parsed) {
-      r = await searchLrclib(scUsername, scTitle, sig);
+    const runChain = async (a: string, t: string) => {
+      let r = await searchLrclib(a, t, sig);
       if (r) return r;
+      r = await searchNetease(a, t, sig);
+      if (r) return r;
+      r = await searchMusixmatch(a, t, sig);
+      if (r) return r;
+      r = await searchGenius(a, t, sig);
+      if (r) return r;
+      r = await searchTextyl(a, t, sig);
+      return r;
+    };
+
+    let res = await runChain(artist, title);
+    if (res) return res;
+
+    if (parsed) {
+      res = await runChain(scUsername, scTitle);
+      if (res) return res;
     }
 
-    // 2. NetEase Cloud Music (synced)
-    r = await searchNetease(artist, title, sig);
-    if (r) return r;
+    // Fallback: title-only search
+    if (artist !== '') {
+      res = await runChain('', title);
+      if (res) return res;
+      
+      if (scTitle !== title) {
+        res = await runChain('', scTitle);
+        if (res) return res;
+      }
+    }
 
-    // 3. Musixmatch (lyrics.ovh) — plain only
-    r = await searchMusixmatch(artist, title, sig);
-    if (r) return r;
-
-    // 4. Genius (some-random-api proxy) — plain only
-    r = await searchGenius(artist, title, sig);
-    if (r) return r;
-
-    // 5. Textyl (synced)
-    r = await searchTextyl(artist, title, sig);
-    if (r) return r;
+    // Fallback: Aggressively strip all brackets and parentheses
+    const artistNoBrackets = stripBrackets(artist);
+    const titleNoBrackets = stripBrackets(title);
+    
+    if (titleNoBrackets !== title || artistNoBrackets !== artist) {
+      if (artistNoBrackets && titleNoBrackets) {
+        res = await runChain(artistNoBrackets, titleNoBrackets);
+        if (res) return res;
+      }
+      
+      if (titleNoBrackets) {
+        res = await runChain('', titleNoBrackets);
+        if (res) return res;
+      }
+    }
 
     return null;
   } finally {
