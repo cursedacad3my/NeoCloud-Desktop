@@ -5,11 +5,13 @@ import { Outlet, useNavigate } from 'react-router-dom';
 import { getCurrentTime, getDuration, handlePrev, seek } from '../../lib/audio';
 import { getWallpaperUrl } from '../../lib/cache';
 import { art } from '../../lib/formatters';
-import { useLyricsStore } from '../../stores/lyrics';
+import { useIsMobile } from '../../lib/hooks/useIsMobile';
+import { useArtworkStore, useLyricsStore } from '../../stores/lyrics';
 import { usePlayerStore } from '../../stores/player';
 import { useSettingsStore } from '../../stores/settings';
 import { ArtworkPanel, LyricsPanel } from '../music/LyricsPanel';
 import { QueuePanel } from '../music/QueuePanel';
+import { MobileNav } from './MobileNav';
 import { NowPlayingBar } from './NowPlayingBar';
 import { Sidebar } from './Sidebar';
 import { Titlebar } from './Titlebar';
@@ -232,6 +234,10 @@ export const AppShell = React.memo(() => {
   const onQueueClose = useCallback(() => setQueueOpen(false), []);
   const navigate = useNavigate();
 
+  const isLyricsOpen = useLyricsStore((s) => s.open);
+  const isArtworkOpen = useArtworkStore((s) => s.open);
+  const isFullscreen = isLyricsOpen || isArtworkOpen;
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const inInput = isInputEl(e.target);
@@ -325,19 +331,25 @@ export const AppShell = React.memo(() => {
     return () => window.removeEventListener('keydown', handler);
   }, [navigate, queueOpen, kbOpen]);
 
+  const isMobile = useIsMobile();
+
   return (
     <div className="flex flex-col h-screen relative overflow-hidden">
       <CustomBackground />
       <AmbientGlow />
       <Titlebar />
-      <div className="flex flex-1 min-h-0 relative z-0" style={{ isolation: 'isolate' }}>
-        <Sidebar />
+      <div 
+        className={`flex flex-1 min-h-0 relative z-0 ${isMobile ? 'mb-[136px]' : 'mb-[96px]'}`}
+        style={{ isolation: 'isolate', display: isFullscreen ? 'none' : undefined }}
+      >
+        {!isMobile && <Sidebar />}
         <main className="flex-1 overflow-y-auto overflow-x-hidden">
           <StableOutlet />
         </main>
       </div>
-      <div className="relative z-10">
+      <div className="fixed bottom-0 left-0 right-0 z-10 flex flex-col">
         <NowPlayingBar onQueueToggle={onQueueToggle} queueOpen={queueOpen} />
+        {isMobile && <MobileNav />}
       </div>
       <QueuePanel open={queueOpen} onClose={onQueueClose} />
       <LyricsPanel />

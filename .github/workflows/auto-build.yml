@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    branches: [main]
+    branches: [main, mobile]
   workflow_dispatch:
     inputs:
       version_type:
@@ -72,7 +72,7 @@ jobs:
           if ! git diff --quiet; then
             git add desktop/package.json desktop/package-lock.json desktop/src-tauri/tauri.conf.json desktop/src-tauri/Cargo.toml desktop/src-tauri/Cargo.lock
             git commit -m "chore: bump version to $NEW_VERSION [skip ci]"
-            git push origin HEAD:main
+            git push origin HEAD:${{ github.ref_name }}
           fi
 
   docker:
@@ -267,7 +267,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: /tmp/artifacts
-          pattern: '{tauri-builds-*,linux-flatpak,soundcloud-desktop-*.flatpak}'
+          pattern: '{tauri-builds-*,linux-flatpak,soundcloud-desktop-*.flatpak,android-apk}'
           merge-multiple: true
 
       - name: Flatten and deduplicate artifacts
