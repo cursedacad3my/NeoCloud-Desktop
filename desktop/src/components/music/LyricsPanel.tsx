@@ -340,10 +340,22 @@ const TrackColumn = React.memo(({ track, maxArt }: { track: Track; maxArt?: stri
   const artwork500 = art(track.artwork_url, 't500x500');
   const artwork200 = art(track.artwork_url, 't200x200');
   const [loaded, setLoaded] = useState(false);
+  const [isSwitching, setIsSwitching] = useState(false);
+  const prevUrnRef = useRef<string | null>(track.urn);
+  const mountedRef = useRef(false);
 
   useEffect(() => {
-    setLoaded(false);
-  }, [artwork500]);
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      return;
+    }
+
+    if (prevUrnRef.current !== track.urn) {
+      prevUrnRef.current = track.urn;
+      setIsSwitching(true);
+      setLoaded(false);
+    }
+  }, [track.urn]);
 
   return (
     <div className="flex flex-col items-center justify-center gap-5 px-12">
@@ -352,17 +364,22 @@ const TrackColumn = React.memo(({ track, maxArt }: { track: Track; maxArt?: stri
       >
         {artwork500 ? (
           <>
-            {/* Blurry low-res placeholder */}
+            {/* Low-res placeholder (Blur applied only during track switch) */}
             <img
               src={artwork200 || artwork500}
               alt=""
-              className={`absolute inset-0 w-full h-full object-cover blur-2xl scale-110 transition-opacity duration-700 ease-[var(--ease-apple)] ${loaded ? 'opacity-0' : 'opacity-100'}`}
+              className={`absolute inset-0 w-full h-full object-cover scale-110 transition-all duration-700 ease-[var(--ease-apple)] ${
+                isSwitching ? 'blur-2xl scale-125' : ''
+              } ${loaded ? 'opacity-0' : 'opacity-100'}`}
             />
             {/* High-res image */}
             <img
               src={artwork500}
               alt=""
-              onLoad={() => setLoaded(true)}
+              onLoad={() => {
+                setLoaded(true);
+                setIsSwitching(false);
+              }}
               className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ease-[var(--ease-apple)] ${loaded ? 'opacity-100' : 'opacity-0'}`}
             />
           </>
