@@ -1,113 +1,142 @@
 import { Readable } from 'node:stream';
 import { HttpService } from '@nestjs/axios';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { AxiosRequestConfig } from 'axios';
 import { firstValueFrom } from 'rxjs';
 import type { ScTokenResponse } from './soundcloud.types.js';
 
+export interface OAuthCredentials {
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
+}
+
+const API_BASE = 'https://api.soundcloud.com';
+const AUTH_BASE = 'https://secure.soundcloud.com';
+
 @Injectable()
 export class SoundcloudService {
-  private readonly apiBaseUrl: string;
-  private readonly authBaseUrl: string;
-  private readonly clientId: string;
-  private readonly clientSecret: string;
-  private readonly redirectUri: string;
+  private readonly logger = new Logger(SoundcloudService.name);
+  private readonly defaultClientId: string;
+  private readonly defaultRedirectUri: string;
+  private readonly proxyUrl: string;
 
   constructor(
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
   ) {
-    this.apiBaseUrl = this.configService.get<string>('soundcloud.apiBaseUrl')!;
-    this.authBaseUrl = this.configService.get<string>('soundcloud.authBaseUrl')!;
-    this.clientId = this.configService.get<string>('soundcloud.clientId')!;
-    this.clientSecret = this.configService.get<string>('soundcloud.clientSecret')!;
-    this.redirectUri = this.configService.get<string>('soundcloud.redirectUri')!;
+    this.defaultClientId = this.configService.get<string>('soundcloud.clientId')!;
+    this.defaultRedirectUri = this.configService.get<string>('soundcloud.redirectUri')!;
+    this.proxyUrl = this.configService.get<string>('soundcloud.proxyUrl') ?? '';
+
+    if (this.proxyUrl) {
+      this.logger.log(`CF proxy enabled: ${this.proxyUrl}`);
+    }
   }
 
-  get scClientId() {
-    return this.clientId;
+  get scAuthBaseUrl() {
+    return AUTH_BASE;
   }
 
-  get scRedirectUri() {
-    return this.redirectUri;
+  get scDefaultClientId() {
+    return this.defaultClientId;
   }
 
-  async exchangeCodeForToken(code: string, codeVerifier: string): Promise<ScTokenResponse> {
+  get scDefaultRedirectUri() {
+    return this.defaultRedirectUri;
+  }
+
+  private proxy(targetUrl: string, extra: Record<string, string> = {}) {
+    if (!this.proxyUrl) {
+      return { url: targetUrl, headers: extra };
+    }
+    return {
+      url: this.proxyUrl,
+      headers: { ...extra, 'X-Target': Buffer.from(targetUrl).toString('base64') },
+    };
+  }
+
+  async exchangeCodeForToken(
+    code: string,
+    codeVerifier: string,
+    creds: OAuthCredentials,
+  ): Promise<ScTokenResponse> {
+    const { url, headers } = this.proxy(`${AUTH_BASE}/oauth/token`, {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept: 'application/json; charset=utf-8',
+    });
+
     const { data } = await firstValueFrom(
       this.httpService.post<ScTokenResponse>(
-        `${this.authBaseUrl}/oauth/token`,
+        url,
         new URLSearchParams({
           grant_type: 'authorization_code',
-          client_id: this.clientId,
-          client_secret: this.clientSecret,
+          client_id: creds.clientId,
+          client_secret: creds.clientSecret,
           code,
-          redirect_uri: this.redirectUri,
+          redirect_uri: creds.redirectUri,
           code_verifier: codeVerifier,
         }).toString(),
-        {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            Accept: 'application/json; charset=utf-8',
-          },
-        },
+        { headers },
       ),
     );
     return data;
   }
 
-  async refreshAccessToken(refreshToken: string): Promise<ScTokenResponse> {
+  async refreshAccessToken(
+    refreshToken: string,
+    creds: OAuthCredentials,
+  ): Promise<ScTokenResponse> {
+    const { url, headers } = this.proxy(`${AUTH_BASE}/oauth/token`, {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept: 'application/json; charset=utf-8',
+    });
+
     const { data } = await firstValueFrom(
       this.httpService.post<ScTokenResponse>(
-        `${this.authBaseUrl}/oauth/token`,
+        url,
         new URLSearchParams({
           grant_type: 'refresh_token',
-          client_id: this.clientId,
-          client_secret: this.clientSecret,
+          client_id: creds.clientId,
+          client_secret: creds.clientSecret,
           refresh_token: refreshToken,
         }).toString(),
-        {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            Accept: 'application/json; charset=utf-8',
-          },
-        },
+        { headers },
       ),
     );
     return data;
   }
 
   async signOut(accessToken: string): Promise<void> {
+    const { url, headers } = this.proxy(`${AUTH_BASE}/sign-out`, {
+      'Content-Type': 'application/json; charset=utf-8',
+      Accept: 'application/json; charset=utf-8',
+    });
+
     await firstValueFrom(
-      this.httpService.post(
-        `${this.authBaseUrl}/sign-out`,
-        JSON.stringify({ access_token: accessToken }),
-        {
-          headers: {
-            'Content-Type': 'application/json; charset=utf-8',
-            Accept: 'application/json; charset=utf-8',
-          },
-        },
-      ),
+      this.httpService.post(url, JSON.stringify({ access_token: accessToken }), { headers }),
     ).catch(() => {});
   }
 
   async apiGet<T>(path: string, accessToken: string, params?: Record<string, unknown>): Promise<T> {
-    // Strip undefined/null values so they don't get sent as query params
     const cleanParams = params
       ? Object.fromEntries(Object.entries(params).filter(([, v]) => v != null))
       : undefined;
-    const config: AxiosRequestConfig = {
-      headers: {
-        Authorization: `OAuth ${accessToken}`,
-        Accept: 'application/json; charset=utf-8',
-      },
-      params: cleanParams,
-    };
 
-    const { data } = await firstValueFrom(
-      this.httpService.get<T>(`${this.apiBaseUrl}${path}`, config),
-    );
+    const target = new URL(`${API_BASE}${path}`);
+    if (cleanParams) {
+      for (const [k, v] of Object.entries(cleanParams)) {
+        target.searchParams.set(k, String(v));
+      }
+    }
+
+    const { url, headers } = this.proxy(target.toString(), {
+      Authorization: `OAuth ${accessToken}`,
+      Accept: 'application/json; charset=utf-8',
+    });
+
+    const { data } = await firstValueFrom(this.httpService.get<T>(url, { headers }));
     return data;
   }
 
@@ -117,19 +146,14 @@ export class SoundcloudService {
     body?: unknown,
     config?: AxiosRequestConfig,
   ): Promise<T> {
-    const mergedConfig: AxiosRequestConfig = {
-      ...config,
-      headers: {
-        Authorization: `OAuth ${accessToken}`,
-        Accept: 'application/json; charset=utf-8',
-        'Content-Type': 'application/json; charset=utf-8',
-        ...config?.headers,
-      },
-    };
+    const { url, headers } = this.proxy(`${API_BASE}${path}`, {
+      Authorization: `OAuth ${accessToken}`,
+      Accept: 'application/json; charset=utf-8',
+      'Content-Type': 'application/json; charset=utf-8',
+      ...(config?.headers as Record<string, string>),
+    });
 
-    const { data } = await firstValueFrom(
-      this.httpService.post<T>(`${this.apiBaseUrl}${path}`, body, mergedConfig),
-    );
+    const { data } = await firstValueFrom(this.httpService.post<T>(url, body, { headers }));
     return data;
   }
 
@@ -139,67 +163,51 @@ export class SoundcloudService {
     body?: unknown,
     config?: AxiosRequestConfig,
   ): Promise<T> {
-    const mergedConfig: AxiosRequestConfig = {
-      ...config,
-      headers: {
-        Authorization: `OAuth ${accessToken}`,
-        Accept: 'application/json; charset=utf-8',
-        'Content-Type': 'application/json; charset=utf-8',
-        ...config?.headers,
-      },
-    };
-
-    const { data } = await firstValueFrom(
-      this.httpService.put<T>(`${this.apiBaseUrl}${path}`, body, mergedConfig),
-    );
-    return data;
-  }
-
-  async proxyStream(
-    url: string,
-    accessToken: string,
-    range?: string,
-  ): Promise<{ stream: Readable; headers: Record<string, string> }> {
-    const headers: Record<string, string> = {
+    const { url, headers } = this.proxy(`${API_BASE}${path}`, {
       Authorization: `OAuth ${accessToken}`,
-    };
-    if (range) {
-      headers.Range = range;
-    }
+      Accept: 'application/json; charset=utf-8',
+      'Content-Type': 'application/json; charset=utf-8',
+      ...(config?.headers as Record<string, string>),
+    });
 
-    const { data, headers: resHeaders } = await firstValueFrom(
-      this.httpService.get(url, {
-        headers,
-        responseType: 'stream',
-        maxRedirects: 5,
-      }),
-    );
-
-    const proxyHeaders: Record<string, string> = {};
-    for (const key of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
-      if (resHeaders[key]) {
-        proxyHeaders[key] = String(resHeaders[key]);
-      }
-    }
-
-    return { stream: data as Readable, headers: proxyHeaders };
+    const { data } = await firstValueFrom(this.httpService.put<T>(url, body, { headers }));
+    return data;
   }
 
   async apiDelete<T>(path: string, accessToken: string): Promise<T> {
-    const config: AxiosRequestConfig = {
-      headers: {
-        Authorization: `OAuth ${accessToken}`,
-        Accept: 'application/json; charset=utf-8',
-      },
-      validateStatus: (status) => status >= 200 && status < 300,
-    };
+    const { url, headers } = this.proxy(`${API_BASE}${path}`, {
+      Authorization: `OAuth ${accessToken}`,
+      Accept: 'application/json; charset=utf-8',
+    });
 
     const { data, status } = await firstValueFrom(
-      this.httpService.delete<T>(`${this.apiBaseUrl}${path}`, config),
+      this.httpService.delete<T>(url, {
+        headers,
+        validateStatus: (s) => s >= 200 && s < 300,
+      }),
     );
-    if (status === 204 || data === undefined || data === null || data === '') {
-      return null as T;
+    return status === 204 || data == null || data === '' ? (null as T) : data;
+  }
+
+  async proxyStream(
+    streamUrl: string,
+    accessToken: string,
+    range?: string,
+  ): Promise<{ stream: Readable; headers: Record<string, string> }> {
+    const extra: Record<string, string> = { Authorization: `OAuth ${accessToken}` };
+    if (range) extra.Range = range;
+
+    const { url, headers } = this.proxy(streamUrl, extra);
+
+    const { data, headers: resHeaders } = await firstValueFrom(
+      this.httpService.get(url, { headers, responseType: 'stream', maxRedirects: 5 }),
+    );
+
+    const responseHeaders: Record<string, string> = {};
+    for (const key of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
+      if (resHeaders[key]) responseHeaders[key] = String(resHeaders[key]);
     }
-    return data;
+
+    return { stream: data as Readable, headers: responseHeaders };
   }
 }

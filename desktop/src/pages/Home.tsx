@@ -445,7 +445,7 @@ const LikedShelf = React.memo(function LikedShelf({
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const displayTracks = useMemo(() => likedTracks.slice(0, 50), [likedTracks]);
+  const displayTracks = useMemo(() => likedTracks.slice(0, 24), [likedTracks]);
 
   if (!isLoading && displayTracks.length === 0) return null;
 
@@ -554,7 +554,7 @@ const DiscoverSection = React.memo(function DiscoverSection({
   const { t } = useTranslation();
 
   // ── Recommended ──
-  const recommendedTracks = useRecommendedTracks(pool, 40);
+  const recommendedTracks = useRecommendedTracks(pool, 24);
 
   // ── Discover by genre ──
   const discoverData = useDiscoverData(pool, likedTracks);

@@ -312,6 +312,12 @@ export const usePlayerStore = create<PlayerState>()(
       name: 'sc-player',
       storage: createJSONStorage(() => tauriStorage),
       version: 3,
+      migrate: (persistedState) => {
+        const state = (persistedState && typeof persistedState === 'object'
+          ? persistedState
+          : {}) as Partial<PlayerState>;
+        return state;
+      },
       partialize: (state) => ({
         volume: state.volume,
         volumeBeforeMute: state.volumeBeforeMute,

@@ -1,11 +1,38 @@
 import { invoke } from '@tauri-apps/api/core';
+import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
-import { getCurrentTime } from './audio';
+import { useSettingsStore } from '../stores/settings';
+import { getCurrentTime, subscribe as subscribeAudioTime } from './audio';
 
 let connected = false;
+let lastConnectAttemptAt = 0;
+const CONNECT_RETRY_MS = 5000;
+
+let lastUpdateTs = 0;
+let updateTimeout: number | null = null;
+
+let lastUrn: string | null = null;
+let lastPlaying = false;
+let lastElapsed = 0;
+let seekSyncTimer: ReturnType<typeof setTimeout> | null = null;
+
+export let currentLyricLine: string | null = null;
+
+function artworkToLarge(url: string | null): string | undefined {
+  if (!url) return undefined;
+  return url.replace(/-[^-./]+(\.[^.]+)$/, '-t500x500$1');
+}
 
 async function ensureConnected(): Promise<boolean> {
+  if (!useSettingsStore.getState().discordRpc) return false;
   if (connected) return true;
+
+  const now = Date.now();
+  if (now - lastConnectAttemptAt < CONNECT_RETRY_MS) {
+    return false;
+  }
+  lastConnectAttemptAt = now;
+
   try {
     connected = await invoke<boolean>('discord_connect');
     return connected;
@@ -14,37 +41,59 @@ async function ensureConnected(): Promise<boolean> {
   }
 }
 
-function artworkToLarge(url: string | null): string | undefined {
-  if (!url) return undefined;
-  return url.replace(/-[^-./]+(\.[^.]+)$/, '-t500x500$1');
-}
+function requestDiscordUpdate(track?: Track) {
+  const currentTrack = track ?? usePlayerStore.getState().currentTrack;
+  if (!currentTrack) return;
 
-export let currentLyricLine: string | null = null;
-let lastUpdateTs = 0;
-let updateTimeout: number | null = null;
+  const now = Date.now();
+  const diff = now - lastUpdateTs;
 
-async function actuallyUpdateActivity() {
-  const track = usePlayerStore.getState().currentTrack;
-  const isPlaying = usePlayerStore.getState().isPlaying;
-  
-  if (!track || !isPlaying) {
-    clearPresence();
-    return;
+  if (updateTimeout) {
+    window.clearTimeout(updateTimeout);
+    updateTimeout = null;
   }
 
+  const perform = () => {
+    lastUpdateTs = Date.now();
+    void updatePresence(currentTrack);
+  };
+
+  if (diff >= 1200) {
+    perform();
+  } else {
+    updateTimeout = window.setTimeout(perform, 1200 - diff);
+  }
+}
+
+function schedulePresenceSync(track: Track, delayMs: number) {
+  if (seekSyncTimer) clearTimeout(seekSyncTimer);
+  seekSyncTimer = setTimeout(() => {
+    seekSyncTimer = null;
+    lastElapsed = Math.round(getCurrentTime());
+    requestDiscordUpdate(track);
+  }, delayMs);
+}
+
+async function updatePresence(track: Track) {
   if (!(await ensureConnected())) return;
 
   try {
+    const isPlaying = usePlayerStore.getState().isPlaying;
+    const { discordRpcMode, discordRpcShowButton } = useSettingsStore.getState();
+
     await invoke('discord_set_activity', {
       track: {
         title: track.title,
         artist: track.user.username,
         artwork_url: artworkToLarge(track.artwork_url),
-        track_url: track.user.permalink_url
-          ? `${track.user.permalink_url}`.replace(/\?.*$/, '')
+        track_url: track.permalink_url
+          ? `${track.permalink_url}`.replace(/\?.*$/, '')
           : undefined,
         duration_secs: Math.round(track.duration / 1000),
         elapsed_secs: Math.round(getCurrentTime()),
+        is_playing: isPlaying,
+        mode: discordRpcMode,
+        show_button: discordRpcShowButton,
         lyric_line: currentLyricLine || undefined,
       },
     });
@@ -52,32 +101,6 @@ async function actuallyUpdateActivity() {
     console.warn('[Discord] Failed to set activity:', e);
     connected = false;
   }
-}
-
-function requestDiscordUpdate() {
-  const now = Date.now();
-  const diff = now - lastUpdateTs;
-  
-  if (updateTimeout) {
-    window.clearTimeout(updateTimeout);
-    updateTimeout = null;
-  }
-
-  if (diff >= 1500) {
-    lastUpdateTs = now;
-    actuallyUpdateActivity();
-  } else {
-    updateTimeout = window.setTimeout(() => {
-      lastUpdateTs = Date.now();
-      actuallyUpdateActivity();
-    }, 1500 - diff);
-  }
-}
-
-export function updateDiscordLyric(lyric: string | null) {
-  if (currentLyricLine === lyric) return;
-  currentLyricLine = lyric;
-  requestDiscordUpdate();
 }
 
 async function clearPresence() {
@@ -89,12 +112,17 @@ async function clearPresence() {
   }
 }
 
-let lastUrn: string | null = null;
-let lastPlaying = false;
+export function updateDiscordLyric(lyric: string | null) {
+  if (currentLyricLine === lyric) return;
+  currentLyricLine = lyric;
+
+  const currentTrack = usePlayerStore.getState().currentTrack;
+  if (!currentTrack || !useSettingsStore.getState().discordRpc) return;
+  requestDiscordUpdate(currentTrack);
+}
 
 usePlayerStore.subscribe((state) => {
   const { currentTrack, isPlaying } = state;
-
   const trackChanged = currentTrack?.urn !== lastUrn;
   const playChanged = isPlaying !== lastPlaying;
 
@@ -102,25 +130,76 @@ usePlayerStore.subscribe((state) => {
     currentLyricLine = null;
   }
 
-  if (!currentTrack || !isPlaying) {
+  if (!currentTrack) {
     if (lastPlaying || trackChanged) {
-      if (updateTimeout) {
-        window.clearTimeout(updateTimeout);
-        updateTimeout = null;
-      }
-      clearPresence();
+      void clearPresence();
     }
-    lastUrn = currentTrack?.urn ?? null;
+    if (seekSyncTimer) {
+      clearTimeout(seekSyncTimer);
+      seekSyncTimer = null;
+    }
+    lastUrn = null;
     lastPlaying = false;
+    lastElapsed = 0;
+    return;
+  }
+
+  if (!useSettingsStore.getState().discordRpc) {
+    lastUrn = currentTrack.urn;
+    lastPlaying = isPlaying;
     return;
   }
 
   if (trackChanged || playChanged) {
     lastUrn = currentTrack.urn;
     lastPlaying = isPlaying;
-    
-    // Always dispatch immediately for play/pause toggles or fresh tracks 
-    // to keep Discord feeling responsive, but still pass through our throttle
-    requestDiscordUpdate();
+    lastElapsed = Math.round(getCurrentTime());
+    requestDiscordUpdate(currentTrack);
+  }
+});
+
+useSettingsStore.subscribe((state, prev) => {
+  const rpcSettingsChanged =
+    state.discordRpc !== prev.discordRpc ||
+    state.discordRpcMode !== prev.discordRpcMode ||
+    state.discordRpcShowButton !== prev.discordRpcShowButton;
+
+  if (!rpcSettingsChanged) return;
+
+  if (!state.discordRpc) {
+    if (seekSyncTimer) {
+      clearTimeout(seekSyncTimer);
+      seekSyncTimer = null;
+    }
+    void clearPresence().finally(() => {
+      connected = false;
+      void invoke('discord_disconnect').catch(() => undefined);
+    });
+    return;
+  }
+
+  const currentTrack = usePlayerStore.getState().currentTrack;
+  if (currentTrack) {
+    requestDiscordUpdate(currentTrack);
+  }
+});
+
+subscribeAudioTime(() => {
+  const { currentTrack, isPlaying } = usePlayerStore.getState();
+  if (!currentTrack || !useSettingsStore.getState().discordRpc) return;
+
+  if (!connected) {
+    requestDiscordUpdate(currentTrack);
+    return;
+  }
+
+  if (!isPlaying) return;
+
+  const elapsed = Math.round(getCurrentTime());
+  const drift = Math.abs(elapsed - lastElapsed);
+  if (drift >= 2) {
+    schedulePresenceSync(currentTrack, 180);
+  } else {
+    lastElapsed = elapsed;
   }
 });

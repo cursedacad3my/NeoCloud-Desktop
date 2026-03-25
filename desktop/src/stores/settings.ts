@@ -4,6 +4,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { tauriStorage } from '../lib/tauri-storage';
 
 export type ThemePreset = 'soundcloud' | 'dark' | 'neon' | 'forest' | 'crimson' | 'custom';
+export type DiscordRpcMode = 'text' | 'track' | 'artist' | 'activity';
 
 export interface ThemePresetDef {
   accent: string;
@@ -57,6 +58,7 @@ export interface SettingsState {
   eqEnabled: boolean;
   eqGains: number[];
   eqPreset: string;
+  normalizeVolume: boolean;
   spotifyClientId: string;
   youtubeClientId: string;
   youtubeClientSecret: string;
@@ -65,6 +67,8 @@ export interface SettingsState {
   crossfadeDuration: number;
   floatingComments: boolean;
   discordRpc: boolean;
+  discordRpcMode: DiscordRpcMode;
+  discordRpcShowButton: boolean;
   qdrantEnabled: boolean;
   qdrantUrl: string;
   qdrantKey: string;
@@ -88,6 +92,7 @@ export interface SettingsState {
   showFpsCounter: boolean;
   hardwareAcceleration: boolean;
   classicPlaybar: boolean;
+  soundwavePresetKey: string;
   setAccentColor: (color: string) => void;
   setBgPrimary: (bg: string) => void;
   setThemePreset: (id: ThemePreset) => void;
@@ -99,6 +104,7 @@ export interface SettingsState {
   setEqGains: (gains: number[]) => void;
   setEqPreset: (preset: string) => void;
   setEqBand: (index: number, gain: number) => void;
+  setNormalizeVolume: (enabled: boolean) => void;
   setSpotifyClientId: (id: string) => void;
   setYoutubeClientId: (id: string) => void;
   setYoutubeClientSecret: (secret: string) => void;
@@ -107,6 +113,8 @@ export interface SettingsState {
   toggleSidebar: () => void;
   setFloatingComments: (v: boolean) => void;
   setDiscordRpc: (v: boolean) => void;
+  setDiscordRpcMode: (mode: DiscordRpcMode) => void;
+  setDiscordRpcShowButton: (show: boolean) => void;
   setQdrantEnabled: (v: boolean) => void;
   setQdrantUrl: (v: string) => void;
   setQdrantKey: (v: string) => void;
@@ -130,10 +138,19 @@ export interface SettingsState {
   setShowFpsCounter: (show: boolean) => void;
   setHardwareAcceleration: (enabled: boolean) => void;
   setClassicPlaybar: (v: boolean) => void;
+  setSoundwavePresetKey: (key: string) => void;
   resetTheme: () => void;
 }
 
 const DEFAULT_EQ_GAINS = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+const ENV_QDRANT_URL = import.meta.env.VITE_QDRANT_URL?.trim() || '';
+const ENV_QDRANT_KEY = import.meta.env.VITE_QDRANT_API_KEY?.trim() || '';
+const ENV_QDRANT_COLLECTION = import.meta.env.VITE_QDRANT_COLLECTION?.trim() || 'sw_v1';
+const ENV_QDRANT_ENABLED_RAW = import.meta.env.VITE_QDRANT_ENABLED;
+const ENV_QDRANT_ENABLED = ENV_QDRANT_ENABLED_RAW
+  ? ['1', 'true', 'yes', 'on'].includes(ENV_QDRANT_ENABLED_RAW.toLowerCase())
+  : Boolean(ENV_QDRANT_URL);
 
 const DEFAULTS = {
   accentColor: '#ff5500',
@@ -146,6 +163,7 @@ const DEFAULTS = {
   eqEnabled: false,
   eqGains: DEFAULT_EQ_GAINS,
   eqPreset: 'flat',
+  normalizeVolume: true,
   spotifyClientId: '',
   youtubeClientId: '',
   youtubeClientSecret: '',
@@ -154,10 +172,12 @@ const DEFAULTS = {
   sidebarCollapsed: false,
   floatingComments: true,
   discordRpc: true,
-  qdrantEnabled: true,
-  qdrantUrl: 'https://ad939139-4819-4d3a-b2a1-1147a03f59ac.sa-east-1-0.aws.cloud.qdrant.io:6333',
-  qdrantKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.gvSVVDlSD2k59lCoi-Jk6lT-QEO_4XmpUBbzx3Dt4S8',
-  qdrantCollection: 'sw_v1',
+  discordRpcMode: 'text' as DiscordRpcMode,
+  discordRpcShowButton: true,
+  qdrantEnabled: ENV_QDRANT_ENABLED,
+  qdrantUrl: ENV_QDRANT_URL,
+  qdrantKey: ENV_QDRANT_KEY,
+  qdrantCollection: ENV_QDRANT_COLLECTION,
   visualizerStyle: 'Wave' as const,
   visualizerPlaybar: true,
   visualizerFullscreen: false,
@@ -177,6 +197,7 @@ const DEFAULTS = {
   showFpsCounter: false,
   hardwareAcceleration: true,
   classicPlaybar: false,
+  soundwavePresetKey: 'work',
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -214,6 +235,10 @@ export const useSettingsStore = create<SettingsState>()(
           return { eqGains, eqPreset: 'custom' };
         });
       },
+      setNormalizeVolume: (normalizeVolume) => {
+        set({ normalizeVolume });
+        invoke('audio_set_normalization', { enabled: normalizeVolume }).catch(console.error);
+      },
       setSpotifyClientId: (spotifyClientId) => set({ spotifyClientId }),
       setYoutubeClientId: (youtubeClientId) => set({ youtubeClientId }),
       setYoutubeClientSecret: (youtubeClientSecret) => set({ youtubeClientSecret }),
@@ -222,6 +247,8 @@ export const useSettingsStore = create<SettingsState>()(
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setFloatingComments: (floatingComments) => set({ floatingComments }),
       setDiscordRpc: (discordRpc) => set({ discordRpc }),
+      setDiscordRpcMode: (discordRpcMode) => set({ discordRpcMode }),
+      setDiscordRpcShowButton: (discordRpcShowButton) => set({ discordRpcShowButton }),
       setQdrantEnabled: (qdrantEnabled) => set({ qdrantEnabled }),
       setQdrantUrl: (qdrantUrl) => set({ qdrantUrl }),
       setQdrantKey: (qdrantKey) => set({ qdrantKey }),
@@ -251,12 +278,22 @@ export const useSettingsStore = create<SettingsState>()(
       setShowFpsCounter: (showFpsCounter) => set({ showFpsCounter }),
       setHardwareAcceleration: (hardwareAcceleration) => set({ hardwareAcceleration }),
       setClassicPlaybar: (classicPlaybar) => set({ classicPlaybar }),
+      setSoundwavePresetKey: (soundwavePresetKey) => set({ soundwavePresetKey }),
       resetTheme: () => set(DEFAULTS),
     }),
     {
       name: 'sc-settings',
       storage: createJSONStorage(() => tauriStorage),
-      version: 5,
+      version: 7,
+      migrate: (persistedState) => {
+        const state = (persistedState && typeof persistedState === 'object'
+          ? persistedState
+          : {}) as Partial<SettingsState>;
+        return {
+          ...DEFAULTS,
+          ...state,
+        };
+      },
       partialize: (s) => ({
         accentColor: s.accentColor,
         bgPrimary: s.bgPrimary,
@@ -268,12 +305,17 @@ export const useSettingsStore = create<SettingsState>()(
         eqEnabled: s.eqEnabled,
         eqGains: s.eqGains,
         eqPreset: s.eqPreset,
+        normalizeVolume: s.normalizeVolume,
         spotifyClientId: s.spotifyClientId,
         youtubeClientId: s.youtubeClientId,
         youtubeClientSecret: s.youtubeClientSecret,
         sidebarCollapsed: s.sidebarCollapsed,
+        crossfadeEnabled: s.crossfadeEnabled,
+        crossfadeDuration: s.crossfadeDuration,
         floatingComments: s.floatingComments,
         discordRpc: s.discordRpc,
+        discordRpcMode: s.discordRpcMode,
+        discordRpcShowButton: s.discordRpcShowButton,
         qdrantEnabled: s.qdrantEnabled,
         qdrantUrl: s.qdrantUrl,
         qdrantKey: s.qdrantKey,
@@ -283,6 +325,7 @@ export const useSettingsStore = create<SettingsState>()(
         showFpsCounter: s.showFpsCounter,
         hardwareAcceleration: s.hardwareAcceleration,
         classicPlaybar: s.classicPlaybar,
+        soundwavePresetKey: s.soundwavePresetKey,
         // Visualizer settings
         visualizerStyle: s.visualizerStyle,
         visualizerPlaybar: s.visualizerPlaybar,

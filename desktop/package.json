@@ -1,10 +1,11 @@
 {
   "name": "soundcloud-desktop",
   "private": true,
-  "version": "6.0.0",
+  "version": "15.13.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:mcp": "set WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 --remote-allow-origins=* && pnpm tauri dev",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",

@@ -9,10 +9,36 @@ import { usePlayerStore } from '../../stores/player';
 import { 
   useSoundWaveStore, 
   ACTIVITY_PRESETS, 
-  MOOD_PRESETS, 
+  MOOD_PRESETS,
   CHARACTER_PRESETS,
   type SoundWavePreset
 } from '../../stores/soundwave';
+import { useSettingsStore } from '../../stores/settings';
+
+const SOUNDWAVE_PRESET_MAP = {
+  ...ACTIVITY_PRESETS,
+  ...MOOD_PRESETS,
+  ...CHARACTER_PRESETS,
+};
+
+type SoundWavePresetKey =
+  | 'wakeup'
+  | 'commute'
+  | 'work'
+  | 'workout'
+  | 'sleep'
+  | 'energetic'
+  | 'happy'
+  | 'calm'
+  | 'sad'
+  | 'favorite'
+  | 'discover'
+  | 'popular';
+
+const getPresetByKey = (key: string): SoundWavePreset => {
+  const preset = SOUNDWAVE_PRESET_MAP[key as SoundWavePresetKey];
+  return preset || ACTIVITY_PRESETS.work;
+};
 
 interface Blob {
   x: number;
@@ -29,24 +55,32 @@ interface Blob {
 export const SoundWaveHero: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
-  
-  const { isPlaying, togglePlay, queueIndex, queue, addToQueue } = usePlayerStore();
-  const { 
-    isActive, 
-    currentPreset, 
-    start: startWave, 
-    stop: stopWave, 
-    generateBatch,
-    isInitialLoading
-  } = useSoundWaveStore();
+
+  const isPlaying = usePlayerStore((s) => s.isPlaying);
+  const togglePlay = usePlayerStore((s) => s.togglePlay);
+  const queueIndex = usePlayerStore((s) => s.queueIndex);
+  const queueLength = usePlayerStore((s) => s.queue.length);
+  const addToQueue = usePlayerStore((s) => s.addToQueue);
+
+  const isActive = useSoundWaveStore((s) => s.isActive);
+  const currentPreset = useSoundWaveStore((s) => s.currentPreset);
+  const startWave = useSoundWaveStore((s) => s.start);
+  const stopWave = useSoundWaveStore((s) => s.stop);
+  const generateBatch = useSoundWaveStore((s) => s.generateBatch);
+  const isInitialLoading = useSoundWaveStore((s) => s.isInitialLoading);
+  const selectedPresetKey = useSettingsStore((s) => s.soundwavePresetKey);
+  const setSoundwavePresetKey = useSettingsStore((s) => s.setSoundwavePresetKey);
+  const selectedPreset = getPresetByKey(selectedPresetKey);
 
   // Prefetching logic
   useEffect(() => {
     if (!isActive) return;
+    if (isInitialLoading) return;
+    if (queueIndex < 0 || queueLength === 0) return;
     
     // If we have less than 5 tracks left in queue, fetch more
-    const remaining = queue.length - (queueIndex + 1);
-    if (remaining < 5 && !isInitialLoading) {
+    const remaining = queueLength - (queueIndex + 1);
+    if (remaining < 5) {
       console.log('[SoundWave] Queue low, prefetching...');
       generateBatch().then((newTracks) => {
         if (newTracks.length > 0) {
@@ -54,7 +88,7 @@ export const SoundWaveHero: React.FC = () => {
         }
       });
     }
-  }, [isActive, queueIndex, queue.length, generateBatch, addToQueue, isInitialLoading]);
+  }, [isActive, queueIndex, queueLength, generateBatch, addToQueue, isInitialLoading]);
 
   // Animation logic
   useEffect(() => {
@@ -64,8 +98,10 @@ export const SoundWaveHero: React.FC = () => {
     if (!ctx) return;
 
     let animationFrameId: number;
+    let lastFrameTime = 0;
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const blobs: Blob[] = [];
-    const blobCount = 6;
+    const blobCount = reducedMotion ? 2 : 4;
 
     const resize = () => {
       canvas.width = canvas.offsetWidth * window.devicePixelRatio;
@@ -100,17 +136,33 @@ export const SoundWaveHero: React.FC = () => {
       });
     }
 
-    const draw = () => {
+    const draw = (ts: number) => {
       const w = canvas.offsetWidth;
       const h = canvas.offsetHeight;
-      if (w === 0 || h === 0) return;
+      if (w === 0 || h === 0) {
+        animationFrameId = requestAnimationFrame(draw);
+        return;
+      }
 
-      ctx.clearRect(0, 0, w, h);
-      ctx.filter = 'blur(60px)';
-      ctx.globalCompositeOperation = 'screen';
+      if (document.visibilityState === 'hidden') {
+        animationFrameId = requestAnimationFrame(draw);
+        return;
+      }
 
       const isActuallyPlaying = isPlaying && isActive;
-      const speedMult = isActuallyPlaying ? 1.5 : 0.4;
+      const targetFps = reducedMotion ? 6 : isActuallyPlaying ? 24 : 2;
+      const frameInterval = 1000 / targetFps;
+      if (ts - lastFrameTime < frameInterval) {
+        animationFrameId = requestAnimationFrame(draw);
+        return;
+      }
+      lastFrameTime = ts;
+
+      ctx.clearRect(0, 0, w, h);
+      ctx.filter = reducedMotion ? 'blur(24px)' : 'blur(36px)';
+      ctx.globalCompositeOperation = 'screen';
+
+      const speedMult = isActuallyPlaying ? 1.5 : 0.08;
 
       blobs.forEach((b) => {
         b.x += b.vx * speedMult;
@@ -140,7 +192,7 @@ export const SoundWaveHero: React.FC = () => {
       animationFrameId = requestAnimationFrame(draw);
     };
 
-    draw();
+    animationFrameId = requestAnimationFrame(draw);
     return () => {
       window.removeEventListener('resize', resize);
       cancelAnimationFrame(animationFrameId);
@@ -151,12 +203,12 @@ export const SoundWaveHero: React.FC = () => {
     if (isActive) {
       togglePlay();
     } else {
-      startWave(ACTIVITY_PRESETS.work);
+      startWave(selectedPreset);
     }
   };
 
-  const handleStartPreset = (preset: SoundWavePreset) => {
-    startWave(preset);
+  const handleSelectPreset = (presetKey: SoundWavePresetKey) => {
+    setSoundwavePresetKey(presetKey);
   };
 
   return (
@@ -207,12 +259,12 @@ export const SoundWaveHero: React.FC = () => {
 
       {/* Redesigned Settings Modal (Global Fixed Overlay) */}
       {isPanelOpen && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[300] flex items-center justify-center px-4 pt-6 pb-28">
           <div
             className="absolute inset-0 bg-black/80 backdrop-blur-md animate-fade-in"
             onClick={() => setIsPanelOpen(false)}
           />
-          <div className="relative w-full max-w-[440px] bg-[rgb(18,18,20)] border border-white/10 rounded-[32px] p-7 shadow-[0_32px_128px_rgba(0,0,0,0.8)] animate-fade-in-up flex flex-col gap-6">
+          <div className="relative w-full max-w-[440px] max-h-[calc(100vh-140px)] bg-[rgb(18,18,20)] border border-white/10 rounded-[32px] p-7 shadow-[0_32px_128px_rgba(0,0,0,0.8)] animate-fade-in-up flex flex-col gap-6 overflow-hidden">
             {/* Header */}
             <div className="flex items-start justify-between">
               <div>
@@ -237,18 +289,17 @@ export const SoundWaveHero: React.FC = () => {
                 </p>
                 <div className="flex gap-2.5">
                   {[
-                    { key: 'wakeup', icon: Sun, label: 'Просыпаюсь' },
-                    { key: 'commute', icon: Car, label: 'В дороге' },
-                    { key: 'work', icon: Laptop, label: 'Работаю' },
-                    { key: 'workout', icon: Dumbbell, label: 'Тренируюсь' },
-                    { key: 'sleep', icon: Moon, label: 'Засыпаю' },
+                    { key: 'wakeup' as const, icon: Sun, label: 'Просыпаюсь' },
+                    { key: 'commute' as const, icon: Car, label: 'В дороге' },
+                    { key: 'work' as const, icon: Laptop, label: 'Работаю' },
+                    { key: 'workout' as const, icon: Dumbbell, label: 'Тренируюсь' },
+                    { key: 'sleep' as const, icon: Moon, label: 'Засыпаю' },
                   ].map(({ key, icon: Icon, label }) => {
-                    const preset = ACTIVITY_PRESETS[key];
-                    const active = currentPreset?.name === preset.name;
+                    const active = selectedPresetKey === key;
                     return (
                       <button
                         key={label}
-                        onClick={() => handleStartPreset(preset)}
+                        onClick={() => handleSelectPreset(key)}
                         className={`flex-1 flex flex-col items-center gap-2 px-1 py-3 rounded-2xl border transition-all group ${
                           active 
                             ? 'bg-white/10 border-white/20 text-white' 
@@ -270,14 +321,16 @@ export const SoundWaveHero: React.FC = () => {
                 </p>
                 <div className="grid grid-cols-2 gap-3">
                   {[
-                    { key: 'energetic', icon: Zap, label: 'Бодрое', color: 'border-orange-500/50 bg-orange-500/10 text-orange-400', active: currentPreset?.name === MOOD_PRESETS.energetic.name },
-                    { key: 'happy', icon: Music, label: 'Весёлое', color: 'border-emerald-500/10 bg-emerald-500/5 text-emerald-400/80 hover:border-emerald-500/30', active: currentPreset?.name === MOOD_PRESETS.happy.name },
-                    { key: 'calm', icon: Waves, label: 'Спокойное', color: 'border-indigo-500/10 bg-indigo-500/5 text-indigo-400/80 hover:border-indigo-500/30', active: currentPreset?.name === MOOD_PRESETS.calm.name },
-                    { key: 'sad', icon: Frown, label: 'Грустное', color: 'border-slate-500/10 bg-slate-500/5 text-slate-400/80 hover:border-slate-500/30', active: currentPreset?.name === MOOD_PRESETS.sad.name },
-                  ].map(({ key, icon: Icon, label, color, active }) => (
+                    { key: 'energetic' as const, icon: Zap, label: 'Бодрое', color: 'border-orange-500/50 bg-orange-500/10 text-orange-400' },
+                    { key: 'happy' as const, icon: Music, label: 'Весёлое', color: 'border-emerald-500/10 bg-emerald-500/5 text-emerald-400/80 hover:border-emerald-500/30' },
+                    { key: 'calm' as const, icon: Waves, label: 'Спокойное', color: 'border-indigo-500/10 bg-indigo-500/5 text-indigo-400/80 hover:border-indigo-500/30' },
+                    { key: 'sad' as const, icon: Frown, label: 'Грустное', color: 'border-slate-500/10 bg-slate-500/5 text-slate-400/80 hover:border-slate-500/30' },
+                  ].map(({ key, icon: Icon, label, color }) => {
+                    const active = selectedPresetKey === key;
+                    return (
                     <button
                       key={label}
-                      onClick={() => handleStartPreset(MOOD_PRESETS[key])}
+                      onClick={() => handleSelectPreset(key)}
                       className={`flex items-center gap-3 p-4 rounded-2xl border transition-all text-left group ${
                         active ? color : 'border-white/5 bg-white/[0.03] text-white/50 hover:bg-white/10 hover:text-white'
                       } ${active ? 'shadow-[0_0_20px_rgba(249,115,22,0.15)]' : ''}`}
@@ -287,7 +340,7 @@ export const SoundWaveHero: React.FC = () => {
                       </div>
                       <span className="text-sm font-bold tracking-wide">{label}</span>
                     </button>
-                  ))}
+                  );})}
                 </div>
               </div>
 
@@ -298,15 +351,15 @@ export const SoundWaveHero: React.FC = () => {
                 </p>
                 <div className="flex gap-2">
                   {[
-                    { key: 'favorite', icon: Heart, label: 'Любимое' },
-                    { key: 'discover', icon: Sparkles, label: 'Незнакомое' },
-                    { key: 'popular', icon: Zap, label: 'Популярное' },
+                    { key: 'favorite' as const, icon: Heart, label: 'Любимое' },
+                    { key: 'discover' as const, icon: Sparkles, label: 'Незнакомое' },
+                    { key: 'popular' as const, icon: Zap, label: 'Популярное' },
                   ].map(({ key, icon: Icon, label }) => {
-                    const active = currentPreset?.name === CHARACTER_PRESETS[key].name;
+                    const active = selectedPresetKey === key;
                     return (
                       <button
                         key={label}
-                        onClick={() => handleStartPreset(CHARACTER_PRESETS[key])}
+                        onClick={() => handleSelectPreset(key)}
                         className={`flex-1 flex items-center justify-center gap-2.5 py-3.5 rounded-2xl border transition-all text-xs font-bold ${
                           active 
                             ? 'bg-white/10 border-white/20 text-white' 
@@ -320,13 +373,14 @@ export const SoundWaveHero: React.FC = () => {
                   })}
                 </div>
               </div>
+
             </div>
 
             {/* Actions */}
             <div className="space-y-2.5">
               <button
                 onClick={() => {
-                  if (currentPreset) startWave(currentPreset);
+                  startWave(selectedPreset);
                   setIsPanelOpen(false);
                 }}
                 className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl bg-[#ff5500] text-white font-bold text-[15px] transition-all hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-orange-500/20 group"

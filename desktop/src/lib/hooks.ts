@@ -133,6 +133,10 @@ interface PlaylistListResponse {
 
 type PageParam = Record<string, string>;
 
+const INFINITE_MAX_PAGES = 8;
+const SEARCH_MAX_PAGES = 5;
+const PLAYLIST_TRACKS_MAX_PAGES = 12;
+
 /* ── Helpers ───────────────────────────────────────────────────── */
 
 /**
@@ -169,6 +173,7 @@ export interface HistoryEntry {
 export function useHistory(limit = 50) {
   const query = useInfiniteQuery({
     queryKey: ['history'],
+    maxPages: INFINITE_MAX_PAGES,
     queryFn: async ({ pageParam = 0 }) => {
       return api<{ collection: HistoryEntry[]; total: number }>(
         `/history?limit=${limit}&offset=${pageParam}`,
@@ -199,6 +204,7 @@ export function useHistory(limit = 50) {
 export function useLocalLikes(limit = 50) {
   const query = useInfiniteQuery({
     queryKey: ['local-likes'],
+    maxPages: INFINITE_MAX_PAGES,
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams({ limit: String(limit) });
       if (pageParam) params.set('cursor', pageParam as string);
@@ -234,6 +240,7 @@ export function useLocalLikes(limit = 50) {
 export function useFeed() {
   const query = useInfiniteQuery({
     queryKey: ['feed'],
+    maxPages: INFINITE_MAX_PAGES,
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams({ limit: '20' });
       if (pageParam) {
@@ -285,6 +292,7 @@ export function useFeed() {
 export function useLikedTracks(limit = 30) {
   const query = useInfiniteQuery({
     queryKey: ['me', 'likes', 'tracks', limit],
+    maxPages: INFINITE_MAX_PAGES,
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams({ limit: String(limit) });
       if (pageParam) {
@@ -376,6 +384,7 @@ export function useFollowingTracks(limit = 20) {
 export function useTrackComments(trackUrn: string | undefined) {
   const query = useInfiniteQuery({
     queryKey: ['track', trackUrn, 'comments'],
+    maxPages: INFINITE_MAX_PAGES,
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams({ limit: '20' });
       if (pageParam) {
@@ -470,6 +479,7 @@ export function usePlaylist(playlistUrn: string | undefined) {
 export function usePlaylistTracks(playlistUrn: string | undefined) {
   const query = useInfiniteQuery({
     queryKey: ['playlist', playlistUrn, 'tracks'],
+    maxPages: PLAYLIST_TRACKS_MAX_PAGES,
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams({ limit: '200' });
       if (pageParam) {
@@ -491,13 +501,6 @@ export function usePlaylistTracks(playlistUrn: string | undefined) {
     enabled: !!playlistUrn,
     refetchOnMount: 'always',
   });
-
-  // Auto-fetch all pages so full playlist loads without scrolling
-  useEffect(() => {
-    if (query.hasNextPage && !query.isFetchingNextPage) {
-      query.fetchNextPage();
-    }
-  }, [query.hasNextPage, query.isFetchingNextPage, query.data]);
 
   const tracks = useMemo(() => {
     if (!query.data) return [];
@@ -524,6 +527,7 @@ export function useUser(userUrn: string | undefined) {
 export function useUserTracks(userUrn: string | undefined) {
   const query = useInfiniteQuery({
     queryKey: ['user', userUrn, 'tracks'],
+    maxPages: INFINITE_MAX_PAGES,
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams({ limit: '30', access: 'playable,preview,blocked' });
       if (pageParam) {
@@ -591,6 +595,7 @@ export function useUserPopularTracks(userUrn: string | undefined) {
 export function useUserPlaylists(userUrn: string | undefined) {
   const query = useInfiniteQuery({
     queryKey: ['user', userUrn, 'playlists'],
+    maxPages: INFINITE_MAX_PAGES,
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams({ limit: '30' });
       if (pageParam) {
@@ -627,6 +632,7 @@ export function useUserPlaylists(userUrn: string | undefined) {
 export function useUserLikedTracks(userUrn: string | undefined) {
   const query = useInfiniteQuery({
     queryKey: ['user', userUrn, 'likes', 'tracks'],
+    maxPages: INFINITE_MAX_PAGES,
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams({ limit: '30', access: 'playable,preview,blocked' });
       if (pageParam) {
@@ -663,6 +669,7 @@ export function useUserLikedTracks(userUrn: string | undefined) {
 export function useUserFollowings(userUrn: string | undefined) {
   const query = useInfiniteQuery({
     queryKey: ['user', userUrn, 'followings'],
+    maxPages: INFINITE_MAX_PAGES,
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams({ limit: '30' });
       if (pageParam) {
@@ -708,6 +715,7 @@ export function useUserWebProfiles(userUrn: string | undefined) {
 export function useMyFollowings(limit = 30) {
   const query = useInfiniteQuery({
     queryKey: ['me', 'followings', limit],
+    maxPages: INFINITE_MAX_PAGES,
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams({ limit: String(limit) });
       if (pageParam) {
@@ -740,6 +748,7 @@ export function useMyFollowings(limit = 30) {
 export function useMyLikedPlaylists(limit = 30) {
   const query = useInfiniteQuery({
     queryKey: ['me', 'likes', 'playlists', limit],
+    maxPages: INFINITE_MAX_PAGES,
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams({ limit: String(limit) });
       if (pageParam) {
@@ -769,9 +778,11 @@ export function useMyLikedPlaylists(limit = 30) {
   return { playlists, ...query };
 }
 
-export function useMyPlaylists(limit = 30) {
+export function useMyPlaylists(limit = 30, enabled = true) {
   const query = useInfiniteQuery({
     queryKey: ['me', 'playlists', limit],
+    maxPages: INFINITE_MAX_PAGES,
+    enabled,
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams({ limit: String(limit) });
       if (pageParam) {
@@ -887,6 +898,7 @@ export function useDeletePlaylist() {
 export function useSearchTracks(q: string) {
   const query = useInfiniteQuery({
     queryKey: ['search', 'tracks', q],
+    maxPages: SEARCH_MAX_PAGES,
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams({
         q,
@@ -925,6 +937,7 @@ export function useSearchTracks(q: string) {
 export function useSearchPlaylists(q: string) {
   const query = useInfiniteQuery({
     queryKey: ['search', 'playlists', q],
+    maxPages: SEARCH_MAX_PAGES,
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams({ q, limit: '20', linked_partitioning: 'true' });
       if (pageParam) {
@@ -953,6 +966,7 @@ export function useSearchPlaylists(q: string) {
 export function useSearchUsers(q: string) {
   const query = useInfiniteQuery({
     queryKey: ['search', 'users', q],
+    maxPages: SEARCH_MAX_PAGES,
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams({ q, limit: '20', linked_partitioning: 'true' });
       if (pageParam) {

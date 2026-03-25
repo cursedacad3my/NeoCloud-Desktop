@@ -92,7 +92,7 @@ pub async fn proxy_request(encoded: &str) -> ProxyResult {
     #[cfg(debug_assertions)]
     println!("[Proxy] {} -> upstream", target_url);
 
-    // Upstream fetch with retries (proxy can 504/502 under load)
+    // Upstream fetch with retries (remote proxy can 504/502 under load)
     let encoded_for_header = BASE64.encode(target_url.as_bytes());
     let mut status = 502u16;
     let mut content_type = String::new();
@@ -130,6 +130,40 @@ pub async fn proxy_request(encoded: &str) -> ProxyResult {
         // Success or client error — no point retrying
         if status < 500 {
             break;
+        }
+    }
+
+    // Fallback: direct fetch from target URL when remote proxy is unstable.
+    if status >= 500 {
+        #[cfg(debug_assertions)]
+        println!("[Proxy] remote failed ({}), trying direct {}", status, target_url);
+
+        for attempt in 0..2u8 {
+            if attempt > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(400 * attempt as u64)).await;
+            }
+
+            let resp = match state.http_client.get(&target_url).send().await {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+
+            status = resp.status().as_u16();
+            content_type = resp
+                .headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .to_string();
+
+            match resp.bytes().await {
+                Ok(b) => data = b.to_vec(),
+                Err(_) => continue,
+            }
+
+            if status < 500 {
+                break;
+            }
         }
     }
 

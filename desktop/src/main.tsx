@@ -4,6 +4,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import i18n from './i18n';
+import { ApiError } from './lib/api';
 import { setServerPorts } from './lib/constants';
 import './lib/audio';
 import './lib/discord';
@@ -17,10 +18,11 @@ useSettingsStore.persist.onFinishHydration((state) => {
     i18n.changeLanguage(state.language);
   }
   invoke('audio_set_eq', { enabled: state.eqEnabled, gains: state.eqGains }).catch(console.error);
+  invoke('audio_set_normalization', { enabled: state.normalizeVolume }).catch(console.error);
 });
 
 
-if (import.meta.env.DEV) {
+if (import.meta.env.DEV && import.meta.env.VITE_REACT_SCAN === '1') {
   const script = document.createElement('script');
   script.src = 'https://unpkg.com/react-scan/dist/auto.global.js';
   script.crossOrigin = 'anonymous';
@@ -31,7 +33,20 @@ export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 1000 * 60 * 5,
-      retry: 1,
+      gcTime: 1000 * 60 * 2,
+      retry: (failureCount, error) => {
+        if (error instanceof ApiError) {
+          if (error.status === 429) return false;
+          if (error.status >= 400 && error.status < 500) return false;
+        }
+        return failureCount < 1;
+      },
+      retryDelay: (attempt, error) => {
+        if (error instanceof ApiError && error.retryAfterMs) {
+          return Math.min(error.retryAfterMs, 10000);
+        }
+        return Math.min(1000 * 2 ** attempt, 5000);
+      },
       refetchOnWindowFocus: false,
     },
   },

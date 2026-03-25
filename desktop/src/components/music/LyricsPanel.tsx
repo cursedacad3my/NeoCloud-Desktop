@@ -282,7 +282,7 @@ const Controls = React.memo(({ track }: { track: Track }) => {
 
   return (
     <div className="flex items-center justify-center gap-2">
-      <AddToPlaylistDialog trackUrns={[track.urn]}>
+      <AddToPlaylistDialog trackUrn={track.urn}>
         <button type="button" className={ctrl}>
           <ListPlus size={20} className="text-white/30 hover:text-white/60" />
         </button>
@@ -343,6 +343,15 @@ const TrackColumn = React.memo(({ track, maxArt }: { track: Track; maxArt?: stri
   const [isSwitching, setIsSwitching] = useState(false);
   const prevUrnRef = useRef<string | null>(track.urn);
   const mountedRef = useRef(false);
+  const switchTimerRef = useRef<number | null>(null);
+
+  const clearSwitching = () => {
+    if (switchTimerRef.current !== null) {
+      window.clearTimeout(switchTimerRef.current);
+      switchTimerRef.current = null;
+    }
+    setIsSwitching(false);
+  };
 
   useEffect(() => {
     if (!mountedRef.current) {
@@ -352,10 +361,30 @@ const TrackColumn = React.memo(({ track, maxArt }: { track: Track; maxArt?: stri
 
     if (prevUrnRef.current !== track.urn) {
       prevUrnRef.current = track.urn;
-      setIsSwitching(true);
       setLoaded(false);
+
+      const shouldBlurTransition = Boolean(artwork200 && artwork500 && artwork200 !== artwork500);
+      setIsSwitching(shouldBlurTransition);
+
+      if (shouldBlurTransition) {
+        if (switchTimerRef.current !== null) {
+          window.clearTimeout(switchTimerRef.current);
+        }
+        switchTimerRef.current = window.setTimeout(() => {
+          setIsSwitching(false);
+          switchTimerRef.current = null;
+        }, 900);
+      }
     }
-  }, [track.urn]);
+  }, [track.urn, artwork200, artwork500]);
+
+  useEffect(() => {
+    return () => {
+      if (switchTimerRef.current !== null) {
+        window.clearTimeout(switchTimerRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div className="flex flex-col items-center justify-center gap-5 px-12">
@@ -378,7 +407,10 @@ const TrackColumn = React.memo(({ track, maxArt }: { track: Track; maxArt?: stri
               alt=""
               onLoad={() => {
                 setLoaded(true);
-                setIsSwitching(false);
+                clearSwitching();
+              }}
+              onError={() => {
+                clearSwitching();
               }}
               className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ease-[var(--ease-apple)] ${loaded ? 'opacity-100' : 'opacity-0'}`}
             />

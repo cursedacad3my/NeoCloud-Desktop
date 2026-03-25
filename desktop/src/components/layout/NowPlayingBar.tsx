@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore }
 import { useNavigate } from 'react-router-dom';
 import { artworkPanelApi } from '../../components/music/LyricsPanel';
 import { useTranslation } from 'react-i18next';
+import { Sparkles } from 'lucide-react';
 import { api, getTrackComments } from '../../lib/api';
 import { getCurrentTime, getSmoothCurrentTime, getDuration, handlePrev, seek, subscribe } from '../../lib/audio';
 import { art, formatTime } from '../../lib/formatters';
@@ -33,7 +34,7 @@ import { usePlayerStore, type Track } from '../../stores/player';
 import { useIsMobile } from '../../lib/hooks/useIsMobile';
 import { useDislikesStore } from '../../stores/dislikes';
 import { useSettingsStore } from '../../stores/settings';
-import { useSoundWaveStore } from '../../stores/soundwave';
+import { useSoundWaveStore, type MoodLabel } from '../../stores/soundwave';
 import { EqualizerPanel } from '../music/EqualizerPanel';
 import { Visualizer } from '../music/Visualizer';
 
@@ -69,7 +70,16 @@ export const ProgressSlider = React.memo(() => {
     }
     const jsonUrl = url.replace(/\.[^.]+$/, '.json');
     fetch(jsonUrl)
-      .then((r) => r.json())
+      .then(async (r) => {
+        if (!r.ok) {
+          throw new Error(`HTTP ${r.status}`);
+        }
+        const contentType = r.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          throw new Error(`Invalid waveform content-type: ${contentType || 'unknown'}`);
+        }
+        return r.json();
+      })
       .then((d) => {
         if (!d || !d.samples) return;
         const s = d.samples;
@@ -381,6 +391,142 @@ function DislikeButton({ trackUrn }: { trackUrn: string }) {
   );
 }
 
+/* ── Mood correction button ──────────────────────────────────── */
+
+const MOOD_OPTIONS: Array<{ mood: MoodLabel; key: string }> = [
+  { mood: 'energetic', key: 'track.moodEnergetic' },
+  { mood: 'happy', key: 'track.moodHappy' },
+  { mood: 'calm', key: 'track.moodCalm' },
+  { mood: 'sad', key: 'track.moodSad' },
+];
+
+function MoodCorrectionButton({ track }: { track: Track }) {
+  const { t } = useTranslation();
+  const trainTrackMood = useSoundWaveStore((s) => s.trainTrackMood);
+  const initWave = useSoundWaveStore((s) => s.init);
+  const [open, setOpen] = useState(false);
+  const [pendingMood, setPendingMood] = useState<MoodLabel | null>(null);
+  const [sending, setSending] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setOpen(false);
+    setPendingMood(null);
+    setSending(false);
+  }, [track.urn]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const onPointerDown = (event: MouseEvent) => {
+      const node = rootRef.current;
+      if (!node) return;
+      if (!node.contains(event.target as Node)) {
+        setOpen(false);
+        setPendingMood(null);
+      }
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false);
+        setPendingMood(null);
+      }
+    };
+
+    window.addEventListener('mousedown', onPointerDown);
+    window.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      window.removeEventListener('mousedown', onPointerDown);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
+
+  const confirmMood = async () => {
+    if (!pendingMood || sending) return;
+    setSending(true);
+    try {
+      await initWave();
+      trainTrackMood(track, pendingMood);
+      setOpen(false);
+      setPendingMood(null);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div ref={rootRef} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => {
+          setOpen((value) => {
+            const next = !value;
+            if (!next) {
+              setPendingMood(null);
+            }
+            return next;
+          });
+        }}
+        title={t('track.moodCorrection', 'Correct mood')}
+        className={`w-9 h-9 flex items-center justify-center transition-all duration-200 cursor-pointer hover:bg-white/[0.04] ${
+          open ? 'text-accent opacity-100' : 'text-white/20 hover:text-accent opacity-0 group-hover/trackinfo:opacity-100'
+        }`}
+      >
+        <Sparkles size={14} />
+      </button>
+
+      {open && (
+        <div className="absolute left-full top-1/2 z-40 ml-2 w-[240px] -translate-y-1/2 rounded-2xl border border-white/10 bg-[#121214] p-3 shadow-2xl shadow-black/60">
+          {!pendingMood ? (
+            <div className="space-y-2">
+              <p className="text-[11px] font-semibold text-white/50">{t('track.moodChoose', 'Choose the correct mood')}</p>
+              <div className="grid grid-cols-2 gap-2">
+                {MOOD_OPTIONS.map((option) => (
+                  <button
+                    key={option.mood}
+                    type="button"
+                    onClick={() => setPendingMood(option.mood)}
+                    className="rounded-xl border border-white/10 bg-white/[0.03] px-2.5 py-2 text-[11px] font-semibold text-white/80 transition-all hover:bg-white/[0.08] hover:text-white"
+                  >
+                    {t(option.key)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              <p className="text-[11px] font-semibold text-white/80">
+                {t('track.moodConfirmPrompt', { mood: t(MOOD_OPTIONS.find((option) => option.mood === pendingMood)?.key || 'track.moodEnergetic') })}
+              </p>
+              <p className="text-[10px] text-white/45">{t('track.moodConfirmHint', 'This will train SoundWave recommendations.')}</p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={confirmMood}
+                  disabled={sending}
+                  className="flex-1 rounded-xl bg-accent px-2.5 py-2 text-[11px] font-semibold text-black transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {t('track.moodConfirmYes', 'Yes')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPendingMood(null)}
+                  disabled={sending}
+                  className="flex-1 rounded-xl border border-white/10 bg-white/[0.03] px-2.5 py-2 text-[11px] font-semibold text-white/70 transition-all hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {t('track.moodConfirmNo', 'No')}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Isolated control buttons ────────────────────────────────── */
 
 const btnClass = (active: boolean, size: 'default' | 'sm') =>
@@ -526,6 +672,7 @@ const TrackInfo = React.memo(() => {
       <div className="flex items-center -mr-2">
         <LikeButton trackUrn={currentTrack.urn} />
         <DislikeButton trackUrn={currentTrack.urn} />
+        <MoodCorrectionButton track={currentTrack} />
       </div>
     </div>
   );
@@ -635,14 +782,14 @@ export const NowPlayingBar = React.memo(
           {!isMobile && <ProgressSlider />}
           <div className={`${isMobile ? 'h-[72px]' : 'h-[76px]'} flex items-center px-5 gap-3 relative`}>
             {/* Left: track info */}
-            <div className="flex-1 min-w-0">
+            <div className="w-[320px] min-w-0">
               <TrackInfo />
             </div>
 
             {!isMobile ? (
               <>
                 {/* Center: controls */}
-                <div className="flex-1 flex flex-col items-center gap-0.5">
+                <div className="absolute left-1/2 -translate-x-1/2 flex flex-col items-center gap-0.5">
                   <div className="flex items-center gap-0.5">
                     <ShuffleBtn />
                     <PrevBtn />
@@ -654,7 +801,7 @@ export const NowPlayingBar = React.memo(
                 </div>
 
                 {/* Right: volume + queue */}
-                <div className="flex items-center gap-0.5 w-[250px] justify-end">
+                <div className="ml-auto flex items-center gap-0.5 w-[320px] justify-end">
                   <EqBtn />
                   <LyricsBtn />
                   <QueueBtn onClick={onQueueToggle} active={queueOpen} />

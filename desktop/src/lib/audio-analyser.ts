@@ -20,6 +20,7 @@ interface Snapshot {
 }
 
 class AudioAnalyserService {
+  private static readonly MAX_FEATURE_CACHE = 600;
   private prevBins = new Uint8Array(64);
   private currentSnapshot: Snapshot | null = null;
   private history: Snapshot[] = [];
@@ -137,7 +138,7 @@ class AudioAnalyserService {
     const { valence, arousal } = this.computeMood(avg);
     const bpm = this.calculateBPM();
 
-    this.cache.set(this.trackUrn, {
+    const next: AudioFeatures = {
       rmsEnergy: avg.energy,
       centroid: avg.centroid,
       flatness: avg.flatness,
@@ -146,7 +147,18 @@ class AudioAnalyserService {
       valence,
       arousal,
       bpm
-    });
+    };
+
+    if (this.cache.has(this.trackUrn)) {
+      this.cache.delete(this.trackUrn);
+    }
+    this.cache.set(this.trackUrn, next);
+
+    while (this.cache.size > AudioAnalyserService.MAX_FEATURE_CACHE) {
+      const oldestKey = this.cache.keys().next().value;
+      if (!oldestKey) break;
+      this.cache.delete(oldestKey);
+    }
   }
 
   private computeMood(avg: Snapshot) {

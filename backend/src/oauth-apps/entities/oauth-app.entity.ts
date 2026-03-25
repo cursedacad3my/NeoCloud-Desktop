@@ -8,8 +8,8 @@ import {
 } from 'typeorm';
 import { v7 as uuidv7 } from 'uuid';
 
-@Entity('sessions')
-export class Session {
+@Entity('oauth_apps')
+export class OAuthApp {
   @PrimaryColumn('uuid')
   id: string;
 
@@ -21,31 +21,25 @@ export class Session {
   }
 
   @Column()
-  accessToken: string;
+  name: string;
 
   @Column()
-  refreshToken: string;
+  clientId: string;
 
   @Column()
-  expiresAt: Date;
+  clientSecret: string;
 
   @Column()
-  scope: string;
+  redirectUri: string;
 
-  @Column({ nullable: true })
-  soundcloudUserId: string;
+  @Column({ default: true })
+  active: boolean;
 
-  @Column({ nullable: true })
-  username: string;
+  @Column({ type: 'timestamptz', nullable: true })
+  bannedAt: Date | null;
 
-  @Column({ nullable: true })
-  codeVerifier: string;
-
-  @Column({ nullable: true })
-  state: string;
-
-  @Column({ nullable: true })
-  oauthAppId: string;
+  @Column({ type: 'text', nullable: true })
+  banReason: string | null;
 
   @CreateDateColumn()
   createdAt: Date;

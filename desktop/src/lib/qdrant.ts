@@ -1,9 +1,10 @@
+import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import type { Track } from '../stores/player';
 import type { AudioFeatures } from './audio-analyser';
 
 export interface QdrantConfig {
   url: string;
-  apiKey: string;
+  apiKey?: string;
   collection: string;
 }
 
@@ -46,7 +47,12 @@ export class QdrantClient {
     if (artist) textParts.push(artist, artist, artist);
     
     const title = (track.title || '').toLowerCase();
-    title.split(/[\s\-_,.!?()[\]{}:;'"\/\\+=#@&*|~`<>]+/).filter(w => w.length > 2).forEach(w => textParts.push(w));
+    title
+      .split(/[\s\-_,.!?()[\]{}:;'"\/\\+=#@&*|~`<>]+/)
+      .filter(w => w.length > 2)
+      .forEach(w => {
+        textParts.push(w);
+      });
     
     const genre = (track.genre || '').toLowerCase().trim();
     if (genre) textParts.push(genre, genre);
@@ -114,13 +120,22 @@ export class QdrantClient {
     const url = `${this.config.url.replace(/\/$/, '')}${path}`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'api-key': this.config.apiKey,
     };
-    const response = await fetch(url, {
+    if (this.config.apiKey?.trim()) {
+      headers['api-key'] = this.config.apiKey.trim();
+    }
+    const request = {
       method,
       headers,
       body: body ? JSON.stringify(body) : null,
-    });
+    };
+
+    let response: Response;
+    try {
+      response = await tauriFetch(url, request);
+    } catch {
+      response = await fetch(url, request);
+    }
     if (!response.ok) {
       const text = await response.text();
       throw new Error(`Qdrant error ${response.status}: ${text}`);
@@ -145,9 +160,18 @@ export class QdrantClient {
       vector: Array.from(this.vectorize(t.track, t.features)),
       payload: {
         urn: t.track.urn,
+        id: t.track.id,
         title: t.track.title,
         artist: t.track.user?.username || '',
+        user_urn: t.track.user?.urn || '',
+        user_avatar_url: t.track.user?.avatar_url || '',
+        user_permalink_url: t.track.user?.permalink_url || '',
+        duration: t.track.duration || 0,
+        playback_count: t.track.playback_count || 0,
+        likes_count: t.track.likes_count || t.track.favoritings_count || 0,
+        favoritings_count: t.track.favoritings_count || t.track.likes_count || 0,
         genre: t.track.genre || '',
+        tag_list: t.track.tag_list || '',
         isLiked: t.isLiked,
         artwork_url: t.track.artwork_url,
       },

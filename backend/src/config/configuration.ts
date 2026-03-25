@@ -4,8 +4,7 @@ export default () => ({
     clientId: process.env.SOUNDCLOUD_CLIENT_ID || '',
     clientSecret: process.env.SOUNDCLOUD_CLIENT_SECRET || '',
     redirectUri: process.env.SOUNDCLOUD_REDIRECT_URI || 'http://localhost:3000/auth/callback',
-    apiBaseUrl: 'https://api.soundcloud.com',
-    authBaseUrl: 'https://secure.soundcloud.com',
+    proxyUrl: process.env.SC_PROXY_URL || '',
   },
   database: {
     host: process.env.DATABASE_HOST || 'localhost',
@@ -13,5 +12,12 @@ export default () => ({
     username: process.env.DATABASE_USERNAME || 'soundcloud',
     password: process.env.DATABASE_PASSWORD || 'soundcloud',
     name: process.env.DATABASE_NAME || 'soundcloud_desktop',
+  },
+  telegram: {
+    botToken: process.env.TELEGRAM_BOT_TOKEN || '',
+    chatId: process.env.TELEGRAM_CHAT_ID || '',
+  },
+  admin: {
+    token: process.env.ADMIN_TOKEN || '',
   },
 });

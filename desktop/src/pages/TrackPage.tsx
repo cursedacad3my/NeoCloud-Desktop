@@ -499,7 +499,7 @@ export const TrackPage = React.memo(() => {
                 <Music size={16} />
                 {t('track.lyrics')}
               </button>
-              <AddToPlaylistDialog trackUrns={[track.urn]}>
+              <AddToPlaylistDialog trackUrn={track.urn}>
                 <button
                   type="button"
                   className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium glass hover:bg-white/[0.05] text-white/60 hover:text-white/80 transition-all duration-200 cursor-pointer"

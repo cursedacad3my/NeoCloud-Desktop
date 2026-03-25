@@ -23,12 +23,17 @@ function scproxyUrl(url: string): string {
   return IS_WINDOWS ? `http://scproxy.localhost/${encoded}` : `scproxy://localhost/${encoded}`;
 }
 
+type ProxyImage = HTMLImageElement & { __origSrc?: string; __origRetryDone?: boolean };
+
 // Hook <img>.src — store original URL to enable retry on error
 const imgSrcDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src')!;
 Object.defineProperty(HTMLImageElement.prototype, 'src', {
   set(url: string) {
     if (url?.startsWith('http') && !isWhitelisted(url)) {
-      (this as HTMLImageElement & { __origSrc: string }).__origSrc = url;
+      const img = this as ProxyImage;
+      img.__origSrc = url;
+      img.__origRetryDone = false;
+      img.style.display = '';
       url = scproxyUrl(url);
     }
     imgSrcDesc.set!.call(this, url);
@@ -43,7 +48,15 @@ document.addEventListener(
   'error',
   (e) => {
     if (e.target instanceof HTMLImageElement) {
-      e.target.style.display = 'none';
+      const img = e.target as ProxyImage;
+      const current = img.currentSrc || img.src;
+      if (!img.__origRetryDone && img.__origSrc && (current.includes('scproxy.localhost') || current.startsWith('scproxy://'))) {
+        img.__origRetryDone = true;
+        img.style.display = '';
+        imgSrcDesc.set!.call(img, img.__origSrc);
+        return;
+      }
+      img.style.display = 'none';
     }
   },
   true,
@@ -51,15 +64,37 @@ document.addEventListener(
 
 // Hook fetch()
 const origFetch = window.fetch.bind(window);
-window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  let originalUrl: string | null = null;
+  let proxiedInput: RequestInfo | URL = input;
+  const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
+  const canFallback = method === 'GET' || method === 'HEAD';
+
   if (typeof input === 'string' && input.startsWith('http') && !isWhitelisted(input)) {
-    input = scproxyUrl(input);
-  } else if (
-    input instanceof Request &&
-    input.url.startsWith('http') &&
-    !isWhitelisted(input.url)
-  ) {
-    input = new Request(scproxyUrl(input.url), input);
+    originalUrl = input;
+    proxiedInput = scproxyUrl(input);
+  } else if (input instanceof URL && input.protocol.startsWith('http') && !isWhitelisted(input.toString())) {
+    originalUrl = input.toString();
+    proxiedInput = scproxyUrl(originalUrl);
+  } else if (input instanceof Request && input.url.startsWith('http') && !isWhitelisted(input.url)) {
+    originalUrl = input.url;
+    proxiedInput = new Request(scproxyUrl(input.url), input);
   }
-  return origFetch(input, init);
+
+  if (!originalUrl) {
+    return origFetch(input, init);
+  }
+
+  try {
+    const res = await origFetch(proxiedInput, init);
+    if (canFallback && res.status >= 500) {
+      return origFetch(originalUrl, init);
+    }
+    return res;
+  } catch (error) {
+    if (canFallback) {
+      return origFetch(originalUrl, init);
+    }
+    throw error;
+  }
 }) as typeof fetch;

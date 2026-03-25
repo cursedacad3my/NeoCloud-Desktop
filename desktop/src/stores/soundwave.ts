@@ -1,11 +1,12 @@
 import { create } from 'zustand';
 import { api } from '../lib/api';
-import { fetchAllLikedTracks } from '../lib/hooks';
+import { fetchAllLikedTracks, type FeedItem, type Playlist } from '../lib/hooks';
 import { usePlayerStore, type Track } from './player';
 import { useDislikesStore } from './dislikes';
 import { useSettingsStore } from './settings';
+import { useAuthStore } from './auth';
 import { QdrantClient } from '../lib/qdrant';
-import { audioAnalyser } from '../lib/audio-analyser';
+import { audioAnalyser, type AudioFeatures } from '../lib/audio-analyser';
 
 export interface SoundWavePreset {
   // ...
@@ -38,11 +39,67 @@ export const CHARACTER_PRESETS: Record<string, SoundWavePreset> = {
   popular: { name: 'Популярное', icon: 'zap', mode: 'popular' },
 };
 
+export type MoodLabel = 'energetic' | 'happy' | 'calm' | 'sad';
+
+const MOOD_TRAINING_PROFILES: Record<MoodLabel, Partial<AudioFeatures>> = {
+  energetic: { valence: 0.75, arousal: 0.92, rmsEnergy: 0.85, flux: 0.65 },
+  happy: { valence: 0.9, arousal: 0.64, rmsEnergy: 0.68, flux: 0.42 },
+  calm: { valence: 0.46, arousal: 0.22, rmsEnergy: 0.25, flux: 0.16 },
+  sad: { valence: 0.18, arousal: 0.2, rmsEnergy: 0.3, flux: 0.21 },
+};
+
+const withMoodProfile = (features: AudioFeatures | null, mood: MoodLabel): AudioFeatures => {
+  const base: AudioFeatures = features || {
+    rmsEnergy: 0.35,
+    centroid: 0.35,
+    flatness: 0.3,
+    rolloff: 0.32,
+    flux: 0.24,
+    valence: 0.5,
+    arousal: 0.5,
+    bpm: 0,
+  };
+
+  return {
+    ...base,
+    ...MOOD_TRAINING_PROFILES[mood],
+  };
+};
+
+const sanitizeCollectionPart = (value: string) => {
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 48);
+  return normalized || 'user';
+};
+
+const buildScopedCollection = (baseCollection: string, userScope: string) => {
+  const base = sanitizeCollectionPart(baseCollection || 'sw_v1');
+  const scope = sanitizeCollectionPart(userScope || 'local');
+  return `${base}_${scope}`.slice(0, 120);
+};
+
+const extractPlaylistTracks = (input: { collection: Playlist[] } | Playlist[] | null | undefined) => {
+  if (!input) return [] as Track[];
+  const collection = Array.isArray(input) ? input : input.collection || [];
+  const tracks: Track[] = [];
+  for (const playlist of collection) {
+    if (!playlist?.tracks?.length) continue;
+    for (const track of playlist.tracks) {
+      if (track?.urn && track.user) tracks.push(track);
+    }
+  }
+  return tracks;
+};
+
 interface SoundWaveState {
   isActive: boolean;
   isInitialLoading: boolean;
   currentPreset: SoundWavePreset | null;
   seedTracks: Track[];
+  explorePool: Track[];
   genreWeights: Record<string, number>;
   artistWeights: Record<string, number>;
   playedUrns: Set<string>;
@@ -55,6 +112,7 @@ interface SoundWaveState {
   stop: () => void;
   generateBatch: () => Promise<Track[]>;
   recordFeedback: (track: Track, type: 'positive' | 'negative') => void;
+  trainTrackMood: (track: Track, mood: MoodLabel) => void;
 }
 
 export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
@@ -62,6 +120,7 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
   isInitialLoading: false,
   currentPreset: null,
   seedTracks: [],
+  explorePool: [],
   genreWeights: {},
   artistWeights: {},
   playedUrns: new Set(),
@@ -75,12 +134,16 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
     set({ isInitialLoading: true });
     try {
       const settings = useSettingsStore.getState();
-      if (settings.qdrantEnabled && settings.qdrantUrl && settings.qdrantKey) {
-        console.log('[SoundWave] Qdrant enabled, connecting to:', settings.qdrantUrl);
+      const auth = useAuthStore.getState();
+      const userScope = auth.user?.urn || (auth.user?.id ? `id_${auth.user.id}` : auth.sessionId || 'local');
+      const scopedCollection = buildScopedCollection(settings.qdrantCollection || 'sw_v1', userScope);
+
+      if (settings.qdrantEnabled && settings.qdrantUrl) {
+        console.log('[SoundWave] Qdrant enabled, connecting to:', settings.qdrantUrl, 'collection:', scopedCollection);
         const client = new QdrantClient({
           url: settings.qdrantUrl,
-          apiKey: settings.qdrantKey,
-          collection: settings.qdrantCollection || 'sw_v1',
+          apiKey: settings.qdrantKey || undefined,
+          collection: scopedCollection,
         });
         try {
           await client.initCollection();
@@ -92,17 +155,61 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
       }
 
       console.log('[SoundWave] Fetching seed tracks (likes)...');
-      const tracks = await fetchAllLikedTracks(200);
-      console.log(`[SoundWave] Found ${tracks.length} liked tracks`);
+      let tracks: Track[] = [];
+      try {
+        tracks = await fetchAllLikedTracks(200);
+        console.log(`[SoundWave] Found ${tracks.length} liked tracks`);
+      } catch (likesError) {
+        console.warn('[SoundWave] Failed to fetch likes, continuing with fallback sources', likesError);
+      }
+
+      console.log('[SoundWave] Fetching exploration tracks (feed/following/playlists/popular)...');
+      const [feedRes, followingRes, myPlaylistsRes, likedPlaylistsRes, popularRes] = await Promise.all([
+        api<{ collection: FeedItem[] }>('/me/feed?limit=60').catch(() => ({ collection: [] })),
+        api<{ collection: Track[] }>('/me/followings/tracks?limit=80').catch(() => ({ collection: [] })),
+        api<{ collection: Playlist[] } | Playlist[]>('/me/playlists?limit=80').catch(() => []),
+        api<{ collection: Playlist[] } | Playlist[]>('/me/likes/playlists?limit=60').catch(() => []),
+        api<{ collection: Track[] }>('/tracks?limit=80&linked_partitioning=true').catch(() => ({ collection: [] })),
+      ]);
+
+      const feedTracks = (feedRes.collection || [])
+        .map((item) => item.origin)
+        .filter((origin) => origin && origin.urn && origin.user) as Track[];
+
+      const playlistTracks = [
+        ...extractPlaylistTracks(myPlaylistsRes),
+        ...extractPlaylistTracks(likedPlaylistsRes),
+      ];
+      console.log(`[SoundWave] Playlist-derived tracks: ${playlistTracks.length}`);
+
+      const likedUrns = new Set(tracks.map((t) => t.urn));
+      const exploreMap = new Map<string, Track>();
+      [...feedTracks, ...(followingRes.collection || []), ...playlistTracks, ...(popularRes.collection || [])].forEach((track) => {
+        if (!track?.urn || !track.user) return;
+        if (likedUrns.has(track.urn)) return;
+        if (!exploreMap.has(track.urn)) {
+          exploreMap.set(track.urn, track);
+        }
+      });
+
+      const explorePool = [...exploreMap.values()].slice(0, 220);
+      console.log(`[SoundWave] Exploration pool size: ${explorePool.length}`);
       
       if (tracks.length === 0) {
-        console.warn('[SoundWave] No liked tracks found! SoundWave may not work correctly.');
+        console.warn('[SoundWave] No liked tracks found, relying on playlists/feed/following for preferences.');
       }
+
+      const preferenceMap = new Map<string, Track>();
+      [...tracks, ...playlistTracks].forEach((track) => {
+        if (!track?.urn || !track.user) return;
+        if (!preferenceMap.has(track.urn)) preferenceMap.set(track.urn, track);
+      });
+      const preferenceTracks = [...preferenceMap.values()];
 
       const genreCounts: Record<string, number> = {};
       const artistCounts: Record<string, number> = {};
       
-      tracks.forEach((t, idx) => {
+      preferenceTracks.forEach((t, idx) => {
         // Newer likes weight more
         const w = 0.3 + 0.7 * Math.exp(-idx / 80);
         const g = t.genre?.toLowerCase().trim();
@@ -121,13 +228,16 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
       for (const [a, c] of Object.entries(artistCounts)) artistWeights[a] = c / maxA;
 
       console.log('[SoundWave] Weights calculated, genres:', Object.keys(genreWeights).length);
-      set({ seedTracks: tracks, genreWeights, artistWeights, isInitialLoading: false });
+      set({ seedTracks: tracks, explorePool, genreWeights, artistWeights, isInitialLoading: false });
 
       // Seed Qdrant in background if available
       const q = get().qdrant;
-      if (q && tracks.length > 0) {
+      if (q && (tracks.length > 0 || explorePool.length > 0)) {
         console.log('[SoundWave] Seeding Qdrant in background...');
-        q.upsert(tracks.map(t => ({ track: t, features: null, isLiked: true }))).catch(e => 
+        q.upsert([
+          ...tracks.map(t => ({ track: t, features: null, isLiked: true })),
+          ...explorePool.map(t => ({ track: t, features: null, isLiked: false })),
+        ]).catch(e => 
           console.error('[SoundWave] Qdrant seeding failed', e)
         );
       }
@@ -173,8 +283,12 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
 
   recordFeedback: (track: Track, type: 'positive' | 'negative') => {
     const { qdrant, sessionPositive, sessionNegative } = get();
-    const id = qdrant?.urnToId(track.urn);
+    if (!qdrant) return;
+
+    const id = qdrant.urnToId(track.urn);
     if (!id) return;
+
+    const features = audioAnalyser.getFeatures(track.urn);
     
     console.log(`[SoundWave] Recording ${type} feedback for: ${track.title}`);
 
@@ -189,20 +303,41 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
     }
 
     // Index the track as a non-liked point for future recommendations
-    if (qdrant) {
-      const features = audioAnalyser.getFeatures(track.urn);
-      qdrant.upsert([{ track, features, isLiked: false }]).catch(e => 
-        console.error('[SoundWave] Feedback indexing failed', e)
-      );
+    qdrant.upsert([{ track, features, isLiked: false }]).catch(e => 
+      console.error('[SoundWave] Feedback indexing failed', e)
+    );
+  },
+
+  trainTrackMood: (track: Track, mood: MoodLabel) => {
+    const { qdrant, sessionPositive } = get();
+    if (!qdrant || !track?.urn) return;
+
+    const id = qdrant.urnToId(track.urn);
+    if (!id) return;
+
+    const current = audioAnalyser.getFeatures(track.urn);
+    const trainedFeatures = withMoodProfile(current, mood);
+
+    console.log(`[SoundWave] Mood training: ${track.title} -> ${mood}`);
+
+    if (!sessionPositive.includes(id)) {
+      set({ sessionPositive: [...sessionPositive, id].slice(-30) });
     }
+
+    qdrant
+      .upsert([{ track, features: trainedFeatures, isLiked: false }])
+      .catch((e) => console.error('[SoundWave] Mood training indexing failed', e));
   },
 
   generateBatch: async () => {
-    const { seedTracks, genreWeights, artistWeights, currentPreset, playedUrns, qdrant, sessionPositive, sessionNegative } = get();
-    if (seedTracks.length === 0) {
-      console.error('[SoundWave] Cannot generate batch: seed tracks empty');
+    const { seedTracks, explorePool, genreWeights, artistWeights, currentPreset, playedUrns, qdrant, sessionPositive, sessionNegative } = get();
+    if (seedTracks.length === 0 && explorePool.length === 0) {
+      console.error('[SoundWave] Cannot generate batch: no seed tracks available');
       return [];
     }
+
+    const dislikedUrns = useDislikesStore.getState().dislikedTrackUrns;
+    const likedUrns = new Set(seedTracks.map((t) => t.urn));
 
     if (qdrant) {
       try {
@@ -210,45 +345,108 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
         // Use Qdrant Recommend API
         let positive: (number | number[])[] = [...sessionPositive];
         if (positive.length === 0) {
-          // Cold start: pick random likes
-          positive = seedTracks.sort(() => Math.random() - 0.5).slice(0, 10).map((t: Track) => qdrant.urnToId(t.urn));
-          console.log('[SoundWave] Using random likes as positive seeds:', positive.length);
+          // Cold start: discover uses explore pool first, others use liked tracks
+          const discoverSelection = currentPreset?.mode === 'discover'
+            ? [...explorePool].sort(() => Math.random() - 0.5).slice(0, 8)
+            : [];
+          const likedSelection = [...seedTracks].sort(() => Math.random() - 0.5).slice(0, 10);
+          const upsertBatch = [
+            ...discoverSelection.map((t) => ({ track: t, features: null, isLiked: false })),
+            ...likedSelection.map((t) => ({ track: t, features: null, isLiked: true })),
+          ];
+
+          if (upsertBatch.length > 0) {
+            await qdrant.upsert(upsertBatch);
+          }
+
+          positive = [...discoverSelection, ...likedSelection]
+            .map((t: Track) => qdrant.urnToId(t.urn))
+            .filter((id) => id > 0);
+          console.log('[SoundWave] Using cold-start seeds:', positive.length);
         }
 
-        // Add preset-based synthetic vector if applicable
-        if (currentPreset?.tags) {
-          const synthTrack = {
-             title: currentPreset.tags.join(' '),
-             genre: currentPreset.tags[0],
-             tag_list: currentPreset.tags.join(' '),
-             duration: 210000,
-             playback_count: 50000,
-             user: { username: '' }
-          } as any;
-          const synthVec = qdrant.vectorize(synthTrack, null);
-          positive.push(Array.from(synthVec));
-          console.log('[SoundWave] Added synthetic preset vector');
+        if (positive.length === 0) {
+          throw new Error('No valid positive seeds for Qdrant recommend');
         }
+
+        const discoverNegatives =
+          currentPreset?.mode === 'discover' && sessionNegative.length === 0
+            ? [...seedTracks]
+                .sort(() => Math.random() - 0.5)
+                .slice(0, 8)
+                .map((t) => qdrant.urnToId(t.urn))
+                .filter((id) => id > 0)
+            : [];
 
         const results = await qdrant.recommend({
           positive,
-          negative: sessionNegative,
+          negative: [...sessionNegative, ...discoverNegatives],
           limit: 30
         });
         console.log(`[SoundWave] Qdrant returned ${results.length} recommendations`);
 
-        const tracks = results.map((r: any) => ({
-          ...r.payload,
-          urn: r.payload.urn,
-          _qdrant: true
-        }) as unknown as Track);
+        const tracks = results.map((r: any) => {
+          const payload = r?.payload || {};
+          const urn = payload.urn || (r?.id ? `soundcloud:tracks:${r.id}` : '');
+          const fallbackId = typeof r?.id === 'number' ? r.id : qdrant.urnToId(urn);
+          const artist = payload.artist || 'Unknown Artist';
 
-        const dislikedUrns = useDislikesStore.getState().dislikedTrackUrns;
-        const filtered = tracks.filter((t: Track) => !playedUrns.has(t.urn) && !dislikedUrns.includes(t.urn));
+          return {
+            id: payload.id || fallbackId || 0,
+            urn,
+            title: payload.title || 'Unknown Track',
+            duration: payload.duration || 210000,
+            artwork_url: payload.artwork_url || null,
+            genre: payload.genre || '',
+            tag_list: payload.tag_list || '',
+            playback_count: payload.playback_count || 0,
+            likes_count: payload.likes_count || payload.favoritings_count || 0,
+            favoritings_count: payload.favoritings_count || payload.likes_count || 0,
+            user: {
+              id: 0,
+              urn: payload.user_urn || 'soundcloud:users:0',
+              username: artist,
+              avatar_url: payload.user_avatar_url || '',
+              permalink_url: payload.user_permalink_url || '',
+            },
+            isLiked: Boolean(payload.isLiked),
+            _qdrant: true,
+          } as unknown as Track;
+        });
+
+        const filtered = tracks.filter((t: Track) => {
+          if (!t.urn) return false;
+          if (playedUrns.has(t.urn)) return false;
+          if (dislikedUrns.includes(t.urn)) return false;
+
+          const isLiked = likedUrns.has(t.urn) || Boolean((t as Track & { isLiked?: boolean }).isLiked);
+          if (currentPreset?.mode === 'discover' && isLiked) return false;
+
+          return true;
+        });
         console.log(`[SoundWave] Filtered batch: ${filtered.length} new tracks found`);
-        
-        filtered.forEach((t: Track) => playedUrns.add(t.urn));
-        return filtered.slice(0, 20);
+
+        if (currentPreset?.mode === 'discover' && filtered.length < 12) {
+          const needed = 12 - filtered.length;
+          const exploreFill = [...explorePool]
+            .filter((t) => t.urn && !playedUrns.has(t.urn) && !dislikedUrns.includes(t.urn) && !likedUrns.has(t.urn))
+            .sort(() => Math.random() - 0.5)
+            .slice(0, needed);
+
+          if (exploreFill.length > 0) {
+            console.log(`[SoundWave] Added ${exploreFill.length} explore fallback tracks`);
+            filtered.push(...exploreFill);
+          }
+        }
+
+        if (filtered.length > 0) {
+          filtered.forEach((t: Track) => {
+            playedUrns.add(t.urn);
+          });
+          return filtered.slice(0, 20);
+        }
+
+        console.warn('[SoundWave] Qdrant produced no usable tracks, falling back to legacy algorithm');
       } catch (e) {
         console.error('[SoundWave] Qdrant recommend failed, falling back to legacy algorithm', e);
       }
@@ -259,7 +457,11 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
     // Fallback to legacy algorithm...
 
     // Pick 5 random seeds from user's likes
-    const seeds = [...seedTracks].sort(() => Math.random() - 0.5).slice(0, 5);
+    const seedBase = currentPreset?.mode === 'discover' && explorePool.length > 0 ? explorePool : seedTracks;
+    if (seedBase.length === 0) {
+      return [];
+    }
+    const seeds = [...seedBase].sort(() => Math.random() - 0.5).slice(0, 5);
     const candidates: { track: Track; score: number }[] = [];
     const seenUrns = new Set<string>();
 
@@ -274,7 +476,6 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
 
     // Step 2: Scoring
     const flat = results.flat();
-    const dislikedUrns = useDislikesStore.getState().dislikedTrackUrns;
 
     for (const track of flat) {
       if (!track.urn || seenUrns.has(track.urn) || playedUrns.has(track.urn) || dislikedUrns.includes(track.urn)) continue;
@@ -283,10 +484,23 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
       let score = 0;
       const genre = track.genre?.toLowerCase().trim();
       const artist = track.user?.username?.toLowerCase().trim();
+      const isLiked = likedUrns.has(track.urn) || Boolean(track.user_favorite);
+
+      if (currentPreset?.mode === 'discover' && isLiked) {
+        continue;
+      }
 
       // Affinity scores
-      if (genre && genreWeights[genre]) score += genreWeights[genre] * 5;
-      if (artist && artistWeights[artist]) score += artistWeights[artist] * 3;
+      if (currentPreset?.mode === 'discover') {
+        const gw = genre && genreWeights[genre] ? genreWeights[genre] : 0;
+        const aw = artist && artistWeights[artist] ? artistWeights[artist] : 0;
+        score += (1 - gw) * 4;
+        score += aw > 0 ? -aw * 6 : 1.5;
+      } else {
+        if (genre && genreWeights[genre]) score += genreWeights[genre] * 5;
+        if (artist && artistWeights[artist]) score += artistWeights[artist] * 3;
+        if (currentPreset?.mode !== 'favorite' && isLiked) score -= 8;
+      }
 
       // Preset matching
       if (currentPreset?.tags) {
@@ -323,7 +537,9 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
       .map(c => c.track);
 
     // Track played URNs to avoid repeats
-    finalBatch.forEach(t => playedUrns.add(t.urn));
+    finalBatch.forEach(t => {
+      playedUrns.add(t.urn);
+    });
     
     return finalBatch;
   }

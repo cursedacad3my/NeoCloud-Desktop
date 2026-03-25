@@ -17,7 +17,7 @@ import {
 } from '../lib/cache';
 import { Globe, Link, Loader2, Trash2, X } from '../lib/icons';
 import { useAuthStore } from '../stores/auth';
-import { THEME_PRESETS, useSettingsStore } from '../stores/settings';
+import { THEME_PRESETS, useSettingsStore, type DiscordRpcMode } from '../stores/settings';
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -46,6 +46,13 @@ const LANGUAGES = [
   { code: 'tr', label: 'Turkce' },
   { code: 'uk', label: 'Українська' },
 ] as const;
+
+const DISCORD_RPC_MODES: Array<{ id: DiscordRpcMode; labelKey: string }> = [
+  { id: 'text', labelKey: 'settings.discordRpcModeText' },
+  { id: 'track', labelKey: 'settings.discordRpcModeTrack' },
+  { id: 'artist', labelKey: 'settings.discordRpcModeArtist' },
+  { id: 'activity', labelKey: 'settings.discordRpcModeActivity' },
+];
 
 /* ── Language Section ─────────────────────────────────────── */
 
@@ -544,8 +551,6 @@ const ThemeSection = React.memo(function ThemeSection() {
           />
         </div>
       )}
-
-// Visualizer section has been moved to a separate component below with translations
     </section>
   );
 });
@@ -684,7 +689,7 @@ const SoundWaveSection = React.memo(function SoundWaveSection() {
                 type="text"
                 value={qdrantUrl}
                 onChange={(e) => setQdrantUrl(e.target.value)}
-                placeholder="https://xxx-yyy.us-east4-0.gcp.cloud.qdrant.io:6333"
+                placeholder="http://localhost:6333 or https://xxx.cloud.qdrant.io:6333"
                 className="w-full px-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] text-[13px] text-white/80 placeholder:text-white/15 focus:border-accent/40 focus:bg-white/[0.06] transition-all outline-none"
               />
             </div>
@@ -695,7 +700,7 @@ const SoundWaveSection = React.memo(function SoundWaveSection() {
                 type="password"
                 value={qdrantKey}
                 onChange={(e) => setQdrantKey(e.target.value)}
-                placeholder="Your Qdrant API Key"
+                placeholder="Optional for local Qdrant"
                 className="w-full px-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] text-[13px] text-white/80 placeholder:text-white/15 focus:border-accent/40 focus:bg-white/[0.06] transition-all outline-none"
               />
             </div>
@@ -712,7 +717,7 @@ const SoundWaveSection = React.memo(function SoundWaveSection() {
             </div>
             
             <p className="text-[11px] text-white/20 italic leading-relaxed">
-               {t('settings.qdrantNote', 'Note: You need a Qdrant Cloud cluster. Your tracks will be vectorized and indexed localy then synced to Qdrant.')}
+               {t('settings.qdrantNote', 'Note: You can use either Qdrant Cloud or a local Qdrant server. Tracks are vectorized locally and synced to the selected collection.')}
             </p>
           </div>
         </div>
@@ -727,6 +732,14 @@ const PlaybackSection = React.memo(function PlaybackSection() {
   const { t } = useTranslation();
   const floatingComments = useSettingsStore((s) => s.floatingComments);
   const setFloatingComments = useSettingsStore((s) => s.setFloatingComments);
+  const normalizeVolume = useSettingsStore((s) => s.normalizeVolume);
+  const setNormalizeVolume = useSettingsStore((s) => s.setNormalizeVolume);
+  const discordRpc = useSettingsStore((s) => s.discordRpc);
+  const setDiscordRpc = useSettingsStore((s) => s.setDiscordRpc);
+  const discordRpcMode = useSettingsStore((s) => s.discordRpcMode);
+  const setDiscordRpcMode = useSettingsStore((s) => s.setDiscordRpcMode);
+  const discordRpcShowButton = useSettingsStore((s) => s.discordRpcShowButton);
+  const setDiscordRpcShowButton = useSettingsStore((s) => s.setDiscordRpcShowButton);
   const targetFramerate = useSettingsStore((s) => s.targetFramerate);
   const unlockFramerate = useSettingsStore((s) => s.unlockFramerate);
   const showFpsCounter = useSettingsStore((s) => s.showFpsCounter);
@@ -737,6 +750,10 @@ const PlaybackSection = React.memo(function PlaybackSection() {
   const setHardwareAcceleration = useSettingsStore((s) => s.setHardwareAcceleration);
   const classicPlaybar = useSettingsStore((s) => s.classicPlaybar);
   const setClassicPlaybar = useSettingsStore((s) => s.setClassicPlaybar);
+  const crossfadeEnabled = useSettingsStore((s) => s.crossfadeEnabled);
+  const crossfadeDuration = useSettingsStore((s) => s.crossfadeDuration);
+  const setCrossfadeEnabled = useSettingsStore((s) => s.setCrossfadeEnabled);
+  const setCrossfadeDuration = useSettingsStore((s) => s.setCrossfadeDuration);
   return (
     <section className="bg-white/[0.02] border border-white/[0.05] backdrop-blur-[60px] rounded-3xl p-6 shadow-xl space-y-5">
       <h3 className="text-[15px] font-bold text-white/80 tracking-tight">
@@ -758,6 +775,27 @@ const PlaybackSection = React.memo(function PlaybackSection() {
           <div
             className={`absolute top-0.5 w-5 h-5 rounded-full shadow-md transition-all duration-200 ${
               floatingComments ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-white'
+            }`}
+          />
+        </button>
+      </div>
+
+      <div className="border-t border-white/[0.04]" />
+
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-[13px] text-white/70 font-medium">{t('settings.normalizeVolume', 'Normalize Volume')}</p>
+          <p className="text-[11px] text-white/30 mt-0.5">{t('settings.normalizeVolumeDesc', 'Level loudness between tracks')}</p>
+        </div>
+        <button
+          onClick={() => setNormalizeVolume(!normalizeVolume)}
+          className={`w-11 h-6 rounded-full transition-all duration-200 cursor-pointer relative ${
+            normalizeVolume ? 'bg-accent' : 'bg-white/10'
+          }`}
+        >
+          <div
+            className={`absolute top-0.5 w-5 h-5 rounded-full shadow-md transition-all duration-200 ${
+              normalizeVolume ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-white'
             }`}
           />
         </button>
@@ -795,34 +833,102 @@ const PlaybackSection = React.memo(function PlaybackSection() {
             <p className="text-[11px] text-white/30">{t('settings.crossfadeDesc', 'Smoothly fade between tracks')}</p>
           </div>
           <button
-            onClick={() => useSettingsStore.getState().setCrossfadeEnabled(!useSettingsStore.getState().crossfadeEnabled)}
+            onClick={() => setCrossfadeEnabled(!crossfadeEnabled)}
             className={`w-11 h-6 rounded-full transition-all duration-200 cursor-pointer relative ${
-              useSettingsStore.getState().crossfadeEnabled ? 'bg-accent' : 'bg-white/10'
+              crossfadeEnabled ? 'bg-accent' : 'bg-white/10'
             }`}
           >
             <div
               className={`absolute top-0.5 w-5 h-5 rounded-full shadow-md transition-all duration-200 ${
-                useSettingsStore.getState().crossfadeEnabled ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-white'
+                crossfadeEnabled ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-white'
               }`}
             />
           </button>
         </div>
 
-        <div className={`transition-opacity duration-300 space-y-3 ${useSettingsStore.getState().crossfadeEnabled ? 'opacity-100' : 'opacity-30 pointer-events-none'}`}>
+        <div className={`transition-opacity duration-300 space-y-3 ${crossfadeEnabled ? 'opacity-100' : 'opacity-30 pointer-events-none'}`}>
           <div className="flex items-center justify-between">
             <label className="text-[13px] text-white/60">{t('settings.crossfadeDuration', 'Duration')}</label>
-            <span className="text-[12px] text-white/40 tabular-nums">{useSettingsStore.getState().crossfadeDuration}s</span>
+            <span className="text-[12px] text-white/40 tabular-nums">{crossfadeDuration}s</span>
           </div>
           <input
             type="range"
             min={1}
             max={15}
             step={1}
-            value={useSettingsStore.getState().crossfadeDuration}
-            onChange={(e) => useSettingsStore.getState().setCrossfadeDuration(Number(e.target.value))}
+            value={crossfadeDuration}
+            onChange={(e) => setCrossfadeDuration(Number(e.target.value))}
             className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[var(--color-accent)]"
           />
         </div>
+      </div>
+
+      <div className="border-t border-white/[0.04]" />
+
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[13px] text-white/70 font-medium">{t('settings.discordRpc', 'Discord Rich Presence')}</p>
+            <p className="text-[11px] text-white/30 mt-0.5">{t('settings.discordRpcDesc', 'Show what you are listening to in Discord')}</p>
+          </div>
+          <button
+            onClick={() => setDiscordRpc(!discordRpc)}
+            className={`w-11 h-6 rounded-full transition-all duration-200 cursor-pointer relative ${
+              discordRpc ? 'bg-accent' : 'bg-white/10'
+            }`}
+          >
+            <div
+              className={`absolute top-0.5 w-5 h-5 rounded-full shadow-md transition-all duration-200 ${
+                discordRpc ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-white'
+              }`}
+            />
+          </button>
+        </div>
+
+        {discordRpc && (
+          <>
+            <div className="space-y-2">
+              <p className="text-[13px] text-white/50 font-medium">{t('settings.discordRpcMode', 'Display Mode')}</p>
+              <div className="grid grid-cols-2 gap-2">
+                {DISCORD_RPC_MODES.map((mode) => {
+                  const active = discordRpcMode === mode.id;
+                  return (
+                    <button
+                      key={mode.id}
+                      onClick={() => setDiscordRpcMode(mode.id)}
+                      className={`rounded-2xl border px-3 py-2.5 text-[12px] font-semibold transition-all duration-200 cursor-pointer ${
+                        active
+                          ? 'border-white/[0.16] bg-white/[0.08] text-white/90'
+                          : 'border-white/[0.05] bg-white/[0.02] text-white/45 hover:bg-white/[0.05] hover:text-white/70'
+                      }`}
+                    >
+                      {t(mode.labelKey)}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[13px] text-white/70 font-medium">{t('settings.discordRpcButton', 'Show SoundCloud Button')}</p>
+                <p className="text-[11px] text-white/30 mt-0.5">{t('settings.discordRpcButtonDesc', 'Adds "Listen on SoundCloud" button to presence')}</p>
+              </div>
+              <button
+                onClick={() => setDiscordRpcShowButton(!discordRpcShowButton)}
+                className={`w-11 h-6 rounded-full transition-all duration-200 cursor-pointer relative ${
+                  discordRpcShowButton ? 'bg-accent' : 'bg-white/10'
+                }`}
+              >
+                <div
+                  className={`absolute top-0.5 w-5 h-5 rounded-full shadow-md transition-all duration-200 ${
+                    discordRpcShowButton ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-white'
+                  }`}
+                />
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="border-t border-white/[0.04]" />
@@ -1247,7 +1353,7 @@ export function Settings() {
   const { t } = useTranslation();
 
   return (
-    <div className="p-6 pb-4 max-w-2xl mx-auto space-y-6">
+    <div className="p-6 pb-32 max-w-2xl mx-auto space-y-6">
       <h1 className="text-3xl font-extrabold text-white tracking-tight">{t('settings.title')}</h1>
       <LanguageSection />
       <CacheSection />

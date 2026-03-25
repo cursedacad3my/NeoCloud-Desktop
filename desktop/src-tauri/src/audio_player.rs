@@ -1,5 +1,6 @@
 use std::io::Cursor;
 use std::num::NonZero;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
@@ -10,6 +11,7 @@ use rodio::mixer::Mixer;
 use rodio::source::SeekError;
 use rodio::stream::DeviceSinkBuilder;
 use rodio::{Decoder, Player, Source};
+use sha2::{Digest, Sha256};
 use souvlaki::{
     MediaControlEvent, MediaControls, MediaMetadata as SmtcMetadata, MediaPlayback, MediaPosition,
     PlatformConfig,
@@ -24,6 +26,14 @@ const EQ_FREQS: [f64; EQ_BANDS] = [
 ];
 const EQ_Q: f64 = 1.414; // ~1 octave bandwidth for peaking filters
 const TICK_INTERVAL_MS: u64 = 100;
+const NORMALIZATION_ANALYSIS_SAMPLES: usize = 48_000 * 2 * 30;
+const NORMALIZATION_BLOCK_SAMPLES: usize = 48_000;
+const NORMALIZATION_TARGET_RMS: f64 = 0.14;
+const NORMALIZATION_TARGET_PEAK: f64 = 0.95;
+const NORMALIZATION_MAX_BOOST_DB: f64 = 9.0;
+const NORMALIZATION_MAX_ATTENUATION_DB: f64 = -8.0;
+const NORMALIZATION_CACHE_VERSION: u8 = 2;
+const MAX_SEEK_FALLBACK_SOURCE_BYTES: usize = 12 * 1024 * 1024;
 
 type ChannelCount = NonZero<u16>;
 type SampleRate = NonZero<u32>;
@@ -174,6 +184,46 @@ impl<S: Source<Item = f32>> Source for EqSource<S> {
     }
     fn sample_rate(&self) -> SampleRate {
         self.sample_rate
+    }
+    fn total_duration(&self) -> Option<Duration> {
+        self.source.total_duration()
+    }
+    fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
+        self.source.try_seek(pos)
+    }
+}
+
+struct GainSource<S: Source<Item = f32>> {
+    source: S,
+    gain: f32,
+}
+
+impl<S: Source<Item = f32>> GainSource<S> {
+    fn new(source: S, gain: f32) -> Self {
+        Self { source, gain }
+    }
+}
+
+impl<S: Source<Item = f32>> Iterator for GainSource<S> {
+    type Item = f32;
+
+    #[inline]
+    fn next(&mut self) -> Option<f32> {
+        self.source
+            .next()
+            .map(|sample| (sample * self.gain).clamp(-1.0, 1.0))
+    }
+}
+
+impl<S: Source<Item = f32>> Source for GainSource<S> {
+    fn current_span_len(&self) -> Option<usize> {
+        self.source.current_span_len()
+    }
+    fn channels(&self) -> ChannelCount {
+        self.source.channels()
+    }
+    fn sample_rate(&self) -> SampleRate {
+        self.source.sample_rate()
     }
     fn total_duration(&self) -> Option<Duration> {
         self.source.total_duration()
@@ -382,20 +432,130 @@ impl Source for OpusSource {
 
 /* ── Decode helper ─────────────────────────────────────────── */
 
+fn normalization_cache_file(cache_dir: &Path, cache_key: &str) -> PathBuf {
+    let mut hasher = Sha256::new();
+    hasher.update(cache_key.as_bytes());
+    let hash = hex::encode(hasher.finalize());
+    cache_dir.join(format!("{hash}.gain"))
+}
+
+fn read_cached_normalization_gain(cache_dir: Option<&Path>, cache_key: Option<&str>) -> Option<f32> {
+    let path = normalization_cache_file(cache_dir?, cache_key?);
+    let raw = std::fs::read_to_string(path).ok()?;
+    let (version, value) = raw.trim().split_once(':')?;
+    if version != NORMALIZATION_CACHE_VERSION.to_string() {
+        return None;
+    }
+    value.parse::<f32>().ok()
+}
+
+fn write_cached_normalization_gain(cache_dir: Option<&Path>, cache_key: Option<&str>, gain: f32) {
+    let Some(cache_dir) = cache_dir else { return; };
+    let Some(cache_key) = cache_key else { return; };
+
+    if std::fs::create_dir_all(cache_dir).is_err() {
+        return;
+    }
+
+    let path = normalization_cache_file(cache_dir, cache_key);
+    let _ = std::fs::write(path, format!("{NORMALIZATION_CACHE_VERSION}:{gain:.6}"));
+}
+
+fn normalization_gain_from_samples<I>(samples: I) -> f32
+where
+    I: IntoIterator<Item = f32>,
+{
+    let mut peak = 0.0f64;
+    let mut count = 0usize;
+    let mut block_sum_sq = 0.0f64;
+    let mut block_count = 0usize;
+    let mut block_powers = Vec::new();
+
+    for sample in samples.into_iter().take(NORMALIZATION_ANALYSIS_SAMPLES) {
+        let value = sample as f64;
+        let abs = value.abs();
+        peak = peak.max(abs);
+        block_sum_sq += value * value;
+        block_count += 1;
+        count += 1;
+
+        if block_count >= NORMALIZATION_BLOCK_SAMPLES {
+            block_powers.push(block_sum_sq / block_count as f64);
+            block_sum_sq = 0.0;
+            block_count = 0;
+        }
+    }
+
+    if block_count > 0 {
+        block_powers.push(block_sum_sq / block_count as f64);
+    }
+
+    if count == 0 || block_powers.is_empty() {
+        return 1.0;
+    }
+
+    block_powers.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let keep_from = ((block_powers.len() as f64) * 0.4).floor() as usize;
+    let kept = &block_powers[keep_from.min(block_powers.len().saturating_sub(1))..];
+    let gated_power = kept.iter().copied().sum::<f64>() / kept.len() as f64;
+    let rms = gated_power.sqrt().max(1e-6);
+    let target_gain = NORMALIZATION_TARGET_RMS / rms;
+    let peak_safe_gain = if peak > 0.0 {
+        NORMALIZATION_TARGET_PEAK / peak
+    } else {
+        target_gain
+    };
+
+    let max_boost = 10f64.powf(NORMALIZATION_MAX_BOOST_DB / 20.0);
+    let max_attenuation = 10f64.powf(NORMALIZATION_MAX_ATTENUATION_DB / 20.0);
+    let gain = target_gain
+        .min(peak_safe_gain)
+        .clamp(max_attenuation, max_boost);
+
+    if (gain - 1.0).abs() < 0.05 {
+        1.0
+    } else {
+        gain as f32
+    }
+}
+
+fn resolve_normalization_gain(
+    bytes: &[u8],
+    cache_dir: Option<&Path>,
+    cache_key: Option<&str>,
+) -> Result<f32, String> {
+    if let Some(gain) = read_cached_normalization_gain(cache_dir, cache_key) {
+        return Ok(gain);
+    }
+
+    let gain = if let Ok(source) = Decoder::new(Cursor::new(bytes.to_vec())) {
+        normalization_gain_from_samples(source)
+    } else {
+        normalization_gain_from_samples(
+            OpusSource::new(bytes.to_vec()).map_err(|e| format!("Failed to decode: {}", e))?,
+        )
+    };
+
+    write_cached_normalization_gain(cache_dir, cache_key, gain);
+    Ok(gain)
+}
+
 fn create_player_from_bytes(
     bytes: &[u8],
     mixer: &Mixer,
     volume: f32,
+    normalization_gain: f32,
     eq_params: Arc<RwLock<EqParams>>,
     vis_tx: Option<std::sync::mpsc::SyncSender<Vec<f32>>>,
 ) -> Result<(Player, Option<f64>), String> {
     let player = Player::connect_new(mixer);
-    player.set_volume(volume);
+    player.set_volume((volume * normalization_gain).clamp(0.0, 2.0));
 
     let duration;
     if let Ok(source) = Decoder::new(Cursor::new(bytes.to_vec())) {
         duration = source.total_duration().map(|d| d.as_secs_f64());
-        let eq_source = EqSource::new(source, eq_params);
+        let gain_source = GainSource::new(source, normalization_gain);
+        let eq_source = EqSource::new(gain_source, eq_params);
         if let Some(ref tx) = vis_tx {
             player.append(AnalyzerSource::new(eq_source, tx.clone()));
         } else {
@@ -405,7 +565,8 @@ fn create_player_from_bytes(
         let source = OpusSource::new(bytes.to_vec())
             .map_err(|e| format!("Failed to decode: {}", e))?;
         duration = source.total_duration().map(|d| d.as_secs_f64());
-        let eq_source = EqSource::new(source, eq_params);
+        let gain_source = GainSource::new(source, normalization_gain);
+        let eq_source = EqSource::new(gain_source, eq_params);
         if let Some(ref tx) = vis_tx {
             player.append(AnalyzerSource::new(eq_source, tx.clone()));
         } else {
@@ -445,6 +606,8 @@ pub struct AudioState {
     crossfade_player: Mutex<Option<Arc<Player>>>,
     mixer: Arc<Mutex<Mixer>>,
     eq_params: Arc<RwLock<EqParams>>,
+    normalization_enabled: AtomicBool,
+    normalization_gain: Mutex<f32>,
     volume: Mutex<f32>, // 0.0 - 2.0
     has_track: AtomicBool,
     ended_notified: AtomicBool,
@@ -587,6 +750,8 @@ pub fn init() -> AudioState {
         crossfade_player: Mutex::new(None),
         mixer: shared_mixer,
         eq_params: Arc::new(RwLock::new(EqParams::default())),
+        normalization_enabled: AtomicBool::new(true),
+        normalization_gain: Mutex::new(1.0),
         volume: Mutex::new(0.25), // 50/200
         has_track: AtomicBool::new(false),
         ended_notified: AtomicBool::new(false),
@@ -787,16 +952,61 @@ fn volume_to_rodio(v: f64) -> f32 {
     (v / 100.0).min(2.0).max(0.0) as f32
 }
 
+fn effective_output_volume(state: &AudioState, base_volume: f32) -> f32 {
+    let gain = if state.normalization_enabled.load(Ordering::Relaxed) {
+        *state.normalization_gain.lock().unwrap()
+    } else {
+        1.0
+    };
+    (base_volume * gain).clamp(0.0, 2.0)
+}
+
+fn store_seek_fallback_bytes(state: &AudioState, bytes: Vec<u8>) {
+    if bytes.len() <= MAX_SEEK_FALLBACK_SOURCE_BYTES {
+        *state.source_bytes.lock().unwrap() = Some(bytes);
+    } else {
+        *state.source_bytes.lock().unwrap() = None;
+    }
+}
+
 /// Load and play audio from a file path
 #[tauri::command]
-pub fn audio_load_file(path: String, crossfade_secs: Option<f64>, state: tauri::State<'_, AudioState>) -> Result<AudioLoadResult, String> {
+pub fn audio_load_file(
+    path: String,
+    cache_key: Option<String>,
+    crossfade_secs: Option<f64>,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AudioState>,
+) -> Result<AudioLoadResult, String> {
     let bytes =
         std::fs::read(&path).map_err(|e| format!("Failed to read {}: {}", path, e))?;
 
     let mixer = state.mixer.lock().unwrap().clone();
     let vol = *state.volume.lock().unwrap();
-    let (new_player, duration_secs) = create_player_from_bytes(&bytes, &mixer, vol, state.eq_params.clone(), state.visualizer_tx.lock().unwrap().clone())?;
+    let normalization_cache_dir = app
+        .path()
+        .app_cache_dir()
+        .ok()
+        .map(|dir| dir.join("audio-normalization"));
+    let normalization_gain = if state.normalization_enabled.load(Ordering::Relaxed) {
+        resolve_normalization_gain(
+            &bytes,
+            normalization_cache_dir.as_deref(),
+            cache_key.as_deref(),
+        )?
+    } else {
+        1.0
+    };
+    let (new_player, duration_secs) = create_player_from_bytes(
+        &bytes,
+        &mixer,
+        vol,
+        normalization_gain,
+        state.eq_params.clone(),
+        state.visualizer_tx.lock().unwrap().clone(),
+    )?;
     let new_player = Arc::new(new_player);
+    *state.normalization_gain.lock().unwrap() = normalization_gain;
 
     let mut old_player_opt = None;
     {
@@ -806,6 +1016,7 @@ pub fn audio_load_file(path: String, crossfade_secs: Option<f64>, state: tauri::
         }
     }
 
+    let effective_vol = effective_output_volume(&state, vol);
     if let Some(cf_duration) = crossfade_secs {
         if let Some(old_player) = old_player_opt {
             if !old_player.is_paused() && !old_player.empty() {
@@ -823,10 +1034,10 @@ pub fn audio_load_file(path: String, crossfade_secs: Option<f64>, state: tauri::
                 let steps = (cf_duration * 1000.0 / 20.0) as u32;
                 if steps > 0 {
                     std::thread::spawn(move || {
-                        let vol_step = vol / (steps as f32);
+                        let vol_step = effective_vol / (steps as f32);
                         for i in 0..=steps {
                             let np_v = vol_step * (i as f32);
-                            let cf_v = vol - np_v;
+                            let cf_v = (effective_vol - np_v).max(0.0);
                             np_player.set_volume(np_v);
                             cf_player.set_volume(cf_v);
                             std::thread::sleep(Duration::from_millis(20));
@@ -845,7 +1056,7 @@ pub fn audio_load_file(path: String, crossfade_secs: Option<f64>, state: tauri::
     }
 
     *state.player.lock().unwrap() = Some(new_player);
-    *state.source_bytes.lock().unwrap() = Some(bytes);
+    store_seek_fallback_bytes(&state, bytes);
     state.has_track.store(true, Ordering::Relaxed);
     state.ended_notified.store(false, Ordering::Relaxed);
     state.device_error.store(false, Ordering::Relaxed);
@@ -864,7 +1075,9 @@ pub async fn audio_load_url(
     url: String,
     session_id: Option<String>,
     cache_path: Option<String>,
+    cache_key: Option<String>,
     crossfade_secs: Option<f64>,
+    app: tauri::AppHandle,
     state: tauri::State<'_, AudioState>,
 ) -> Result<AudioLoadResult, String> {
     let gen = state.load_gen.load(Ordering::Relaxed);
@@ -899,8 +1112,30 @@ pub async fn audio_load_url(
     // Decode and play
     let mixer = state.mixer.lock().unwrap().clone();
     let vol = *state.volume.lock().unwrap();
-    let (new_player, duration_secs) = create_player_from_bytes(&bytes, &mixer, vol, state.eq_params.clone(), state.visualizer_tx.lock().unwrap().clone())?;
+    let normalization_cache_dir = app
+        .path()
+        .app_cache_dir()
+        .ok()
+        .map(|dir| dir.join("audio-normalization"));
+    let normalization_gain = if state.normalization_enabled.load(Ordering::Relaxed) {
+        resolve_normalization_gain(
+            &bytes,
+            normalization_cache_dir.as_deref(),
+            cache_key.as_deref(),
+        )?
+    } else {
+        1.0
+    };
+    let (new_player, duration_secs) = create_player_from_bytes(
+        &bytes,
+        &mixer,
+        vol,
+        normalization_gain,
+        state.eq_params.clone(),
+        state.visualizer_tx.lock().unwrap().clone(),
+    )?;
     let new_player = Arc::new(new_player);
+    *state.normalization_gain.lock().unwrap() = normalization_gain;
 
     let mut old_player_opt = None;
     {
@@ -910,6 +1145,7 @@ pub async fn audio_load_url(
         }
     }
 
+    let effective_vol = effective_output_volume(&state, vol);
     if let Some(cf_duration) = crossfade_secs {
         if let Some(old_player) = old_player_opt {
             if !old_player.is_paused() && !old_player.empty() {
@@ -927,10 +1163,10 @@ pub async fn audio_load_url(
                 let steps = (cf_duration * 1000.0 / 20.0) as u32;
                 if steps > 0 {
                     std::thread::spawn(move || {
-                        let vol_step = vol / (steps as f32);
+                        let vol_step = effective_vol / (steps as f32);
                         for i in 0..=steps {
                             let np_v = vol_step * (i as f32);
-                            let cf_v = vol - np_v;
+                            let cf_v = (effective_vol - np_v).max(0.0);
                             np_player.set_volume(np_v);
                             cf_player.set_volume(cf_v);
                             std::thread::sleep(Duration::from_millis(20));
@@ -954,7 +1190,7 @@ pub async fn audio_load_url(
     }
 
     *state.player.lock().unwrap() = Some(new_player);
-    *state.source_bytes.lock().unwrap() = Some(bytes);
+    store_seek_fallback_bytes(&state, bytes);
     state.has_track.store(true, Ordering::Relaxed);
     state.ended_notified.store(false, Ordering::Relaxed);
     state.device_error.store(false, Ordering::Relaxed);
@@ -1022,7 +1258,19 @@ pub fn audio_seek(position: f64, state: tauri::State<'_, AudioState>) -> Result<
 
     let mixer = state.mixer.lock().unwrap().clone();
     let vol = *state.volume.lock().unwrap();
-    let (new_player, _) = create_player_from_bytes(&bytes, &mixer, vol, state.eq_params.clone(), state.visualizer_tx.lock().unwrap().clone())?;
+    let normalization_gain = if state.normalization_enabled.load(Ordering::Relaxed) {
+        *state.normalization_gain.lock().unwrap()
+    } else {
+        1.0
+    };
+    let (new_player, _) = create_player_from_bytes(
+        &bytes,
+        &mixer,
+        vol,
+        normalization_gain,
+        state.eq_params.clone(),
+        state.visualizer_tx.lock().unwrap().clone(),
+    )?;
 
     if position > 0.0 {
         new_player.try_seek(target).ok();
@@ -1061,7 +1309,7 @@ pub fn audio_set_volume(volume: f64, state: tauri::State<'_, AudioState>) {
     let vol = volume_to_rodio(volume);
     *state.volume.lock().unwrap() = vol;
     if let Some(ref p) = *state.player.lock().unwrap() {
-        p.set_volume(vol);
+        p.set_volume(effective_output_volume(&state, vol));
     }
 }
 
@@ -1083,6 +1331,15 @@ pub fn audio_set_eq(enabled: bool, gains: Vec<f64>, state: tauri::State<'_, Audi
         for (i, &g) in gains.iter().enumerate().take(EQ_BANDS) {
             params.gains[i] = g.clamp(-12.0, 12.0);
         }
+    }
+}
+
+#[tauri::command]
+pub fn audio_set_normalization(enabled: bool, state: tauri::State<'_, AudioState>) {
+    state.normalization_enabled.store(enabled, Ordering::Relaxed);
+    let vol = *state.volume.lock().unwrap();
+    if let Some(ref p) = *state.player.lock().unwrap() {
+        p.set_volume(effective_output_volume(&state, vol));
     }
 }
 

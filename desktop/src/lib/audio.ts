@@ -98,8 +98,9 @@ async function loadTrack(track: Track, skipStop = false) {
   notify();
 
   // Sync EQ state to Rust
-  const { eqEnabled, eqGains } = useSettingsStore.getState();
+  const { eqEnabled, eqGains, normalizeVolume } = useSettingsStore.getState();
   invoke('audio_set_eq', { enabled: eqEnabled, gains: eqGains }).catch(console.error);
+  invoke('audio_set_normalization', { enabled: normalizeVolume }).catch(console.error);
 
   // Sync volume
   invoke('audio_set_volume', { volume: usePlayerStore.getState().volume }).catch(console.error);
@@ -114,10 +115,11 @@ async function loadTrack(track: Track, skipStop = false) {
   try {
     let result: { duration_secs: number | null };
     if (cachedPath) {
-      result = await invoke<{ duration_secs: number | null }>('audio_load_file', {
-        path: cachedPath,
-        crossfadeSecs
-      });
+        result = await invoke<{ duration_secs: number | null }>('audio_load_file', {
+          path: cachedPath,
+          cacheKey: urn,
+          crossfadeSecs
+        });
     } else {
       const url = `${API_BASE}/tracks/${encodeURIComponent(urn)}/stream`;
       const sessionId = getSessionId();
@@ -125,6 +127,7 @@ async function loadTrack(track: Track, skipStop = false) {
         url,
         sessionId: sessionId || null,
         cachePath: null,
+        cacheKey: urn,
         crossfadeSecs
       });
       // Background cache for next time
@@ -322,6 +325,9 @@ usePlayerStore.subscribe((state, prev) => {
 useSettingsStore.subscribe((state, prev) => {
   if (state.eqEnabled !== prev.eqEnabled || state.eqGains !== prev.eqGains) {
     invoke('audio_set_eq', { enabled: state.eqEnabled, gains: state.eqGains }).catch(console.error);
+  }
+  if (state.normalizeVolume !== prev.normalizeVolume) {
+    invoke('audio_set_normalization', { enabled: state.normalizeVolume }).catch(console.error);
   }
 });
 

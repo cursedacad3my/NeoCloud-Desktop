@@ -220,7 +220,7 @@ const TrackRow = React.memo(
         {/* Like + Add to playlist */}
         <div className="flex items-center gap-0.5 shrink-0">
           <LikeButton track={track} />
-          <AddToPlaylistDialog trackUrns={[track.urn]}>
+          <AddToPlaylistDialog trackUrn={track.urn}>
             <button
               type="button"
               className="cursor-pointer w-8 h-8 rounded-lg flex items-center justify-center text-white/20 hover:text-white/50 opacity-0 group-hover:opacity-100 transition-all duration-200 shrink-0"

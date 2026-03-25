@@ -19,7 +19,19 @@ pub struct DiscordTrackInfo {
     track_url: Option<String>,
     duration_secs: Option<i64>,
     elapsed_secs: Option<i64>,
+    is_playing: Option<bool>,
+    mode: Option<DiscordRpcMode>,
+    show_button: Option<bool>,
     lyric_line: Option<String>,
+}
+
+#[derive(Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiscordRpcMode {
+    Text,
+    Track,
+    Artist,
+    Activity,
 }
 
 #[tauri::command]
@@ -44,7 +56,9 @@ pub fn discord_connect(state: tauri::State<'_, Arc<DiscordState>>) -> Result<boo
 
 #[tauri::command]
 pub fn discord_disconnect(state: tauri::State<'_, Arc<DiscordState>>) {
-    let Ok(mut guard) = state.client.lock() else { return; };
+    let Ok(mut guard) = state.client.lock() else {
+        return;
+    };
     if let Some(ref mut client) = *guard {
         let _ = client.close();
         println!("[Discord] Disconnected");
@@ -67,6 +81,14 @@ pub fn discord_set_activity(
 
     let elapsed = track.elapsed_secs.unwrap_or(0);
     let start = now - elapsed;
+    let is_playing = track.is_playing.unwrap_or(true);
+    let mode = track.mode.unwrap_or(DiscordRpcMode::Text);
+    let show_button = track.show_button.unwrap_or(true);
+    let text_mode_details = if matches!(mode, DiscordRpcMode::Text) {
+        Some(format!("{} - {}", track.title, track.artist))
+    } else {
+        None
+    };
 
     let mut timestamps = Timestamps::new().start(start);
     if let Some(dur) = track.duration_secs {
@@ -75,30 +97,53 @@ pub fn discord_set_activity(
 
     let large_image = track.artwork_url.as_deref().unwrap_or("soundcloud_logo");
 
-    let assets = Assets::new()
-        .large_image(large_image);
-
-    let details = if track.lyric_line.is_some() {
-        format!("{} - {}", track.title, track.artist)
-    } else {
-        track.title.clone()
-    };
-
-    let state_str = if let Some(ref lyric) = track.lyric_line {
-        lyric.clone()
-    } else {
-        track.artist.clone()
-    };
+    let assets = Assets::new().large_image(large_image);
 
     let mut activity = Activity::new()
         .activity_type(ActivityType::Listening)
-        .details(&details)
-        .state(&state_str)
-        .assets(assets)
-        .timestamps(timestamps);
+        .assets(assets);
 
-    if let Some(ref url) = track.track_url {
-        activity = activity.buttons(vec![Button::new("Listen on SoundCloud", url)]);
+    activity = match mode {
+        DiscordRpcMode::Text => {
+            let state_text = if is_playing {
+                track.lyric_line.as_deref().unwrap_or(track.artist.as_str())
+            } else {
+                "Paused"
+            };
+            activity
+                .details(text_mode_details.as_deref().unwrap_or(track.title.as_str()))
+                .state(state_text)
+        }
+        DiscordRpcMode::Track => activity.details(&track.title).state(if is_playing {
+            track.artist.as_str()
+        } else {
+            "Paused"
+        }),
+        DiscordRpcMode::Artist => {
+            let activity = activity.details(&track.artist);
+            if is_playing {
+                activity
+            } else {
+                activity.state("Paused")
+            }
+        }
+        DiscordRpcMode::Activity => {
+            if is_playing {
+                activity.details("Listening on SoundCloud")
+            } else {
+                activity.details("Paused")
+            }
+        }
+    };
+
+    if is_playing {
+        activity = activity.timestamps(timestamps);
+    }
+
+    if show_button {
+        if let Some(ref url) = track.track_url {
+            activity = activity.buttons(vec![Button::new("Listen on SoundCloud", url)]);
+        }
     }
 
     let result = client.set_activity(activity);

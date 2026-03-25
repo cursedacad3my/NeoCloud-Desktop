@@ -91,7 +91,7 @@ export const TrackCard = React.memo(
 
           {/* Top right: add to playlist + add to queue */}
           <div className="absolute top-2 right-2 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-            <AddToPlaylistDialog trackUrns={[track.urn]}>
+            <AddToPlaylistDialog trackUrn={track.urn}>
               <button
                 type="button"
                 onClick={(e) => e.stopPropagation()}
@@ -136,5 +136,6 @@ export const TrackCard = React.memo(
     );
   },
   (prev, next) =>
-    prev.track.urn === next.track.urn && prev.track.user_favorite === next.track.user_favorite,
+    prev.track.urn === next.track.urn &&
+    Boolean(prev.track.user_favorite) === Boolean(next.track.user_favorite),
 );

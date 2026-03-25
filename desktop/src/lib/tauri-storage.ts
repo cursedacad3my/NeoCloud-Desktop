@@ -1,7 +1,9 @@
 import type { StateStorage } from 'zustand/middleware';
+import { isTauri } from '@tauri-apps/api/core';
 import { readTextFile, writeTextFile, exists, mkdir, BaseDirectory } from '@tauri-apps/plugin-fs';
 
 const BASE_DIR = BaseDirectory.AppData;
+const TAURI_RUNTIME = isTauri();
 
 let dirReady: Promise<void> | null = null;
 
@@ -18,6 +20,10 @@ function filePath(name: string) {
 
 export const tauriStorage: StateStorage = {
   getItem: async (name) => {
+    if (!TAURI_RUNTIME) {
+      return localStorage.getItem(name);
+    }
+
     await ensureDir();
     const path = filePath(name);
     try {
@@ -31,6 +37,11 @@ export const tauriStorage: StateStorage = {
   },
 
   setItem: async (name, value) => {
+    if (!TAURI_RUNTIME) {
+      localStorage.setItem(name, value);
+      return;
+    }
+
     await ensureDir();
     const path = filePath(name);
     try {
@@ -41,6 +52,11 @@ export const tauriStorage: StateStorage = {
   },
 
   removeItem: async (name) => {
+    if (!TAURI_RUNTIME) {
+      localStorage.removeItem(name);
+      return;
+    }
+
     const path = filePath(name);
     try {
       const { remove } = await import('@tauri-apps/plugin-fs');

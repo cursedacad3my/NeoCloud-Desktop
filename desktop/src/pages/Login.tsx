@@ -1,10 +1,9 @@
-import { fetch } from '@tauri-apps/plugin-http';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { Check, ClipboardCopy, Disc3 } from '../lib/icons';
+import { isTauri } from '@tauri-apps/api/core';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../lib/api';
-import { API_BASE } from '../lib/constants';
+import { Check, ClipboardCopy, Disc3 } from '../lib/icons';
 import { queryClient } from '../main';
 import { useAuthStore } from '../stores/auth';
 
@@ -24,37 +23,48 @@ export function Login() {
   const [loading, setLoading] = useState(false);
   const [authUrl, setAuthUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      if (pollRef.current) clearTimeout(pollRef.current);
     };
   }, []);
 
   const handleLogin = async () => {
-    if (pollRef.current) clearInterval(pollRef.current);
+    if (pollRef.current) clearTimeout(pollRef.current);
     setLoading(true);
     try {
       const { url, sessionId } = await api<LoginResponse>('/auth/login');
       setAuthUrl(url);
-      await openUrl(url);
-
-      pollRef.current = setInterval(async () => {
+      if (isTauri()) {
         try {
-          const res = await fetch(`${API_BASE}/auth/session`, {
+          await openUrl(url);
+        } catch {
+          window.open(url, '_blank', 'noopener,noreferrer');
+        }
+      } else {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
+
+      const pollSession = async () => {
+        try {
+          const data = await api<SessionResponse>('/auth/session', {
             headers: { 'x-session-id': sessionId },
           });
-          const data: SessionResponse = await res.json();
           if (data.authenticated) {
-            if (pollRef.current) clearInterval(pollRef.current);
+            if (pollRef.current) clearTimeout(pollRef.current);
             pollRef.current = null;
             setSession(sessionId);
             await fetchUser();
             queryClient.invalidateQueries();
+            return;
           }
         } catch {}
-      }, 2000);
+        pollRef.current = setTimeout(pollSession, 2000);
+      };
+
+      pollRef.current = setTimeout(pollSession, 2000);
     } catch (e) {
       console.error('Login failed:', e);
       setLoading(false);

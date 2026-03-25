@@ -1,5 +1,5 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
@@ -13,7 +13,8 @@ import {
 import { Globe, ListMusic, ListPlus, Loader2, Lock, Plus, X } from '../../lib/icons';
 
 interface AddToPlaylistDialogProps {
-  trackUrns: string[];
+  trackUrn?: string;
+  trackUrns?: string[];
   children: React.ReactNode;
 }
 
@@ -122,13 +123,18 @@ const CreatePlaylistForm = React.memo(function CreatePlaylistForm({
 /* ── Main Dialog ─────────────────────────────────────────────── */
 
 export const AddToPlaylistDialog = React.memo(function AddToPlaylistDialog({
+  trackUrn,
   trackUrns,
   children,
 }: AddToPlaylistDialogProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
-  const { playlists, isLoading } = useMyPlaylists();
+  const normalizedTrackUrns = useMemo(() => {
+    if (trackUrn) return [trackUrn];
+    return trackUrns ?? [];
+  }, [trackUrn, trackUrns]);
+  const { playlists, isLoading } = useMyPlaylists(30, open);
   const addToPlaylist = useAddToPlaylist();
 
   const handleSelect = async (playlist: Playlist) => {
@@ -149,7 +155,7 @@ export const AddToPlaylistDialog = React.memo(function AddToPlaylistDialog({
 
     // Filter out duplicates
     const existingSet = new Set(finalExistingUrns);
-    const newUrns = trackUrns.filter((u) => !existingSet.has(u));
+    const newUrns = normalizedTrackUrns.filter((u) => !existingSet.has(u));
 
     if (newUrns.length === 0) {
       toast.info('Already in playlist');
@@ -192,11 +198,11 @@ export const AddToPlaylistDialog = React.memo(function AddToPlaylistDialog({
 
           {/* New playlist button / form */}
           {showCreate ? (
-            <CreatePlaylistForm
-              trackUrns={trackUrns}
-              onCreated={() => {
-                setShowCreate(false);
-                setOpen(false);
+              <CreatePlaylistForm
+               trackUrns={normalizedTrackUrns}
+               onCreated={() => {
+                 setShowCreate(false);
+                 setOpen(false);
               }}
             />
           ) : (
