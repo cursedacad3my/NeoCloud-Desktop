@@ -274,7 +274,10 @@
   "update": {
     "available": "Доступно обновление",
     "later": "Позже",
-    "download": "Скачать"
+    "download": "Обновить",
+    "installing": "Устанавливаем обновление...",
+    "downloadingProgress": "Загрузка: {{progress}}%",
+    "failed": "Не удалось установить обновление"
   },
   "common": {
     "loading": "Загрузка...",

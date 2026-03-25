@@ -42,6 +42,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
         .register_asynchronous_uri_scheme_protocol("scproxy", |_ctx, request, responder| {
             let Some(state) = proxy::STATE.get() else {
                 responder.respond(
@@ -57,6 +58,9 @@ pub fn run() {
             });
         })
         .setup(move |app| {
+            #[cfg(desktop)]
+            app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+
             let cache_dir = app
                 .path()
                 .app_cache_dir()

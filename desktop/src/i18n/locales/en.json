@@ -273,7 +273,10 @@
   "update": {
     "available": "Update available",
     "later": "Later",
-    "download": "Download"
+    "download": "Update now",
+    "installing": "Installing update...",
+    "downloadingProgress": "Downloading: {{progress}}%",
+    "failed": "Failed to install update"
   },
   "common": {
     "loading": "Loading...",

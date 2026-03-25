@@ -205,6 +205,8 @@ jobs:
             desktop/src-tauri/target/**/release/bundle/msi/*.msi
             desktop/src-tauri/target/**/release/bundle/dmg/*.dmg
             desktop/src-tauri/target/**/release/bundle/macos/*.tar.gz
+            desktop/src-tauri/target/**/release/bundle/**/*.sig
+            desktop/src-tauri/target/**/release/**/latest*.json
           retention-days: 2
 
   flatpak:
@@ -282,6 +284,59 @@ jobs:
             cp "$f" "/tmp/release/$name"
           done
           ls -la /tmp/release/
+
+      - name: Generate updater manifest
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          version = os.environ['VERSION']
+          repository = os.environ['REPOSITORY']
+          release_dir = Path('/tmp/release')
+          base_url = f"https://github.com/{repository}/releases/download/{version}"
+
+          candidates = {
+              'windows-x86_64': [
+                  f'soundcloud-desktop_{version}_x64-setup.exe',
+                  f'soundcloud-desktop_{version}_x64_en-US.msi',
+              ],
+              'linux-x86_64': [f'soundcloud-desktop_{version}_amd64.AppImage'],
+              'linux-aarch64': [f'soundcloud-desktop_{version}_aarch64.AppImage'],
+              'darwin-x86_64': ['soundcloud-desktop_x64.app.tar.gz'],
+              'darwin-aarch64': ['soundcloud-desktop_arm64.app.tar.gz'],
+          }
+
+          platforms = {}
+          for target, names in candidates.items():
+              for name in names:
+                  artifact = release_dir / name
+                  signature = release_dir / f'{name}.sig'
+                  if artifact.exists() and signature.exists():
+                      platforms[target] = {
+                          'url': f'{base_url}/{name}',
+                          'signature': signature.read_text(encoding='utf-8').strip(),
+                      }
+                      break
+
+          if not platforms:
+              raise RuntimeError('No updater-compatible artifacts found for latest.json')
+
+          manifest = {
+              'version': version,
+              'platforms': platforms,
+          }
+
+          (release_dir / 'latest.json').write_text(
+              json.dumps(manifest, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8',
+          )
+          print('Generated /tmp/release/latest.json with platforms:', ', '.join(sorted(platforms.keys())))
+          PY
 
       - name: Publish release
         uses: zxcloli666/release-helper@main
