@@ -1,230 +1,147 @@
 <p align="center">
-<a href="https://github.com/zxcloli666/SoundCloud-Desktop/releases/latest">
-<img src="https://raw.githubusercontent.com/zxcloli666/SoundCloud-Desktop/legacy/icons/appLogo.png" width="180px" style="border-radius: 50%;" />
-</a>
+  <a href="https://github.com/Teiwazik/SoundCloud-DesktopFork/releases/latest">
+    <img src="https://raw.githubusercontent.com/zxcloli666/SoundCloud-Desktop/legacy/icons/appLogo.png" width="170" alt="SoundCloud Desktop Fork" />
+  </a>
 </p>
 
-<h1 align="center"><a href="https://soundcloud.su/">SoundCloud Desktop</a></h1>
+<h1 align="center">SoundCloud Desktop Fork</h1>
 
 <p align="center">
-<b>Нативное десктопное приложение для SoundCloud</b><br>
-Без рекламы · Без капчи · Без цензуры · Доступно в России
-</p>
-
-<p align="center">
-<a href="https://github.com/zxcloli666/SoundCloud-Desktop/releases/latest">
-<img src="https://img.shields.io/github/v/release/zxcloli666/SoundCloud-Desktop?style=for-the-badge&logo=github&color=FF5500&label=VERSION" alt="Version"/>
-</a>
-<a href="https://github.com/zxcloli666/SoundCloud-Desktop/releases">
-<img src="https://img.shields.io/github/downloads/zxcloli666/SoundCloud-Desktop/total?style=for-the-badge&logo=download&color=FF5500&label=Downloads" alt="Downloads"/>
-</a>
-<a href="https://github.com/zxcloli666/SoundCloud-Desktop/stargazers">
-<img src="https://img.shields.io/github/stars/zxcloli666/SoundCloud-Desktop?style=for-the-badge&logo=github&color=FF5500&label=Stars" alt="Stars"/>
-</a>
-<a href="https://github.com/zxcloli666/SoundCloud-Desktop/blob/main/LICENSE">
-<img src="https://img.shields.io/badge/License-MIT-FF5500?style=for-the-badge" alt="License"/>
-</a>
+  Форк нативного SoundCloud-клиента на Tauri v2 для Windows, Linux и macOS<br/>
+  Без рекламы · Без капчи · Улучшенный плеер · Активные релизы
 </p>
 
 <p align="center">
-<a href="https://github.com/zxcloli666/SoundCloud-Desktop/releases/latest">
-<img src="https://img.shields.io/badge/Скачать-Последнюю_Версию-FF5500?style=for-the-badge" alt="Download"/>
-</a>
-<a href="https://github.com/zxcloli666/SoundCloud-Desktop-EN">
-<img src="https://img.shields.io/badge/English-README-0066FF?style=for-the-badge" alt="English"/>
-</a>
+  <a href="https://github.com/Teiwazik/SoundCloud-DesktopFork/releases/latest">
+    <img src="https://img.shields.io/github/v/release/Teiwazik/SoundCloud-DesktopFork?style=for-the-badge&logo=github&color=FF5500&label=VERSION" alt="Version"/>
+  </a>
+  <a href="https://github.com/Teiwazik/SoundCloud-DesktopFork/releases">
+    <img src="https://img.shields.io/github/downloads/Teiwazik/SoundCloud-DesktopFork/total?style=for-the-badge&logo=download&color=FF5500&label=Downloads" alt="Downloads"/>
+  </a>
+  <a href="https://github.com/Teiwazik/SoundCloud-DesktopFork/stargazers">
+    <img src="https://img.shields.io/github/stars/Teiwazik/SoundCloud-DesktopFork?style=for-the-badge&logo=github&color=FF5500&label=Stars" alt="Stars"/>
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/Teiwazik/SoundCloud-DesktopFork/releases/latest">
+    <img src="https://img.shields.io/badge/Скачать-Последнюю_Версию-FF5500?style=for-the-badge" alt="Download"/>
+  </a>
+  <a href="https://teiwazik.github.io/soundcloud-desktopfork-site/">
+    <img src="https://img.shields.io/badge/Сайт_форка-GitHub_Pages-1f6feb?style=for-the-badge" alt="Fork Site"/>
+  </a>
+  <a href="https://github.com/zxcloli666/SoundCloud-Desktop">
+    <img src="https://img.shields.io/badge/Основной_репозиторий-Upstream-24292f?style=for-the-badge" alt="Upstream"/>
+  </a>
 </p>
 
 ---
 
-## Что это?
+## Что это
 
-**SoundCloud Desktop** — полноценное десктопное приложение для прослушивания музыки на SoundCloud. Написано на Tauri 2 + React 19 — работает нативно, потребляет минимум ресурсов и не тормозит.
+**SoundCloud Desktop Fork** — форк клиента SoundCloud с упором на стабильные релизы, качество воспроизведения и улучшения UX/рекомендаций.
 
-Более **100 000 скачиваний**. Работает на Windows, Linux и macOS.
+- Нативная оболочка: **Tauri v2 + Rust**
+- Интерфейс: **React 19 + Vite + Tailwind**
+- Поддержка: **Windows / Linux / macOS**
+- Автообновления через GitHub Releases
 
 ---
 
-## Почему SoundCloud Desktop
+## Ключевые улучшения в этом форке
 
-### Доступно в России
+### Стриминг и плеер
 
-SoundCloud заблокирован Роскомнадзором — веб-версия не открывается. SoundCloud Desktop работает напрямую без каких-либо дополнительных программ. Весь каталог SoundCloud доступен полностью.
+- Интегрирован **GO+/HQ streaming** и передача качества потока в UI.
+- Добавлен **HQ/LQ badge** в mini player и fullscreen-панели.
+- Улучшена стабильность playback-логики и взаимодействия с треками.
+- Исправлено поведение громкости при **crossfade** (убран резкий скачок).
 
-### Никакой рекламы
+### Fullscreen, lyrics, визуал
 
-Ноль рекламных баннеров, ноль промо-вставок между треками, ноль всплывающих окон «оформи подписку». Чистый интерфейс, только музыка.
+- Оптимизированы fullscreen-панели (lyrics/artwork) и фоновые эффекты.
+- Снижены лишние re-render/DOM-конфликты на прогресс-баре.
+- Улучшена плавность отображения прогресса и переключений треков.
 
-### Без капчи
+### Рекомендации и discovery
 
-Никаких бесконечных проверок «я не робот». Открыл — слушаешь.
+- Расширена векторизация треков (**Qdrant 96D**).
+- Добавлен **hybrid recommend/search/rerank** pipeline.
+- Добавлены **региональные тренды** (Apple/Deezer) в пул discovery.
+- Поддержан **LLM rerank** (через настраиваемый endpoint/model).
 
-### Без цензуры
+### Release/Updater инфраструктура
 
-Доступ ко всему каталогу SoundCloud без региональных ограничений. Все треки, все артисты, все жанры.
-
-### Нативное и лёгкое
-
-Построено на **Tauri 2** (Rust) вместо Electron. Результат:
-- Размер установщика **~15 МБ** (а не 200+ МБ как у Electron-приложений)
-- Потребление оперативной памяти **~80–120 МБ** при воспроизведении
-- Мгновенный запуск
-- Плавный интерфейс на 60 FPS даже на слабом железе
-
-### Полностью на русском
-
-Интерфейс переведён на русский язык. Язык определяется автоматически по системе — ничего настраивать не нужно.
-
-### Системная интеграция
-
-- **Управление из системы** — медиа-кнопки на клавиатуре, системный центр уведомлений (Windows), MPRIS (Linux)
-- **Discord Rich Presence** — показывай друзьям, что слушаешь
-- **Трей** — приложение работает в фоне
-- **Автообновления** — новые версии устанавливаются в один клик
+- Исправлен релизный pipeline для корректной линейки версий **6.x**.
+- Ротация ключей подписи updater и обновление release-артефактов.
+- Актуальные `latest.json` и `.sig` для стабильной проверки подписи.
 
 ---
 
 ## Скачать
 
+Релизы: https://github.com/Teiwazik/SoundCloud-DesktopFork/releases/latest
+
 ### Windows
-
-Перейди на [страницу релизов](https://github.com/zxcloli666/SoundCloud-Desktop/releases/latest) и скачай:
-- **`.exe`** (NSIS-установщик) — рекомендуется
-- **`.msi`** — альтернативный установщик
-
-Требования: Windows 10 (1809+) или Windows 11
+- `*.exe` (рекомендуется)
+- `*.msi`
 
 ### Linux
-
-| Формат | Архитектура | Описание |
-|--------|------------|----------|
-| `.deb` | amd64, arm64 | Ubuntu, Debian, Mint, Pop!_OS |
-| `.rpm` | amd64, arm64 | Fedora, openSUSE, CentOS |
-| `.AppImage` | amd64, arm64 | Универсальный, работает везде |
-| `.flatpak` | amd64 | Песочница, автообновления |
-
-Скачай нужный формат со [страницы релизов](https://github.com/zxcloli666/SoundCloud-Desktop/releases/latest).
-
-Для AppImage:
-```bash
-chmod +x soundcloud-desktop-*.AppImage
-./soundcloud-desktop-*.AppImage
-```
+- `.deb` (amd64/arm64)
+- `.rpm` (x86_64/aarch64)
+- `.AppImage` (amd64/aarch64)
+- `.flatpak`
 
 ### macOS
-
-- **Apple Silicon** (M1/M2/M3/M4): `*_arm64.dmg`
-- **Intel**: `*_x64.dmg`
-
-Скачай со [страницы релизов](https://github.com/zxcloli666/SoundCloud-Desktop/releases/latest). Первый запуск: ПКМ → Открыть.
+- `*_x64.dmg` (Intel)
+- `*_aarch64.dmg` (Apple Silicon)
 
 ---
 
-## Скриншоты
+## Сайт форка
 
-<p align="center">
-
-![home-screen](https://github.com/user-attachments/assets/66d6abb5-7ecd-493c-a0a1-19e7b22d2da5)
-
-![liked-tracks](https://github.com/user-attachments/assets/d590bfe7-487b-4578-90fd-2c21646e262a)
-
-</p>
+- GitHub Pages: https://teiwazik.github.io/soundcloud-desktopfork-site/
+- Репозиторий сайта: https://github.com/Teiwazik/soundcloud-desktopfork-site
 
 ---
 
-## Обратная связь
+## Основной репозиторий (upstream)
 
-| | |
-|---|---|
-| Предложить идею | [Обсуждение #121](https://github.com/zxcloli666/SoundCloud-Desktop/discussions/121) |
-| Что-то не работает? | [Обсуждение #144](https://github.com/zxcloli666/SoundCloud-Desktop/discussions/144) |
-| Поставить звезду | [GitHub Stars](https://github.com/zxcloli666/SoundCloud-Desktop/stargazers) — помогает продвижению! |
+Если хотите сверять изменения с оригинальным проектом:
 
-Pull requests приветствуются. Для крупных изменений сначала откройте issue.
+- https://github.com/zxcloli666/SoundCloud-Desktop
 
 ---
 
-## Сборка из исходников
-
-<details>
-<summary><b>Инструкция для разработчиков</b></summary>
+## Разработка
 
 ### Требования
 
-- **Node.js** 22+
-- **pnpm** 10+
-- **Rust** 1.77+ (stable)
+- Node.js 22+
+- pnpm 10+
+- Rust stable
 
-### Запуск
+### Запуск desktop
 
 ```bash
-git clone https://github.com/zxcloli666/SoundCloud-Desktop.git
-cd SoundCloud-Desktop/desktop
+git clone https://github.com/Teiwazik/SoundCloud-DesktopFork.git
+cd SoundCloud-DesktopFork/desktop
 pnpm install
 pnpm tauri dev
 ```
 
-### Production-сборка
-
-```bash
-pnpm tauri build
-```
-
-Артефакты появятся в `src-tauri/target/release/bundle/`.
-
 ### Проверки
 
 ```bash
-npx tsc --noEmit        # типы TypeScript
-cargo check              # компиляция Rust
-npx biome check src/     # линтинг
+npx tsc --noEmit
+npx biome check src/
+cargo check
 ```
-
-</details>
-
----
-
-## Стек
-
-| Компонент | Технология |
-|-----------|-----------|
-| Оболочка | Tauri 2 (Rust) |
-| Фронтенд | React 19, Vite 7, Tailwind CSS 4 |
-| Стейт | Zustand, TanStack Query |
-| Аудио | rodio (rust) |
-| UI-компоненты | Radix UI |
-| Бэкенд | NestJS 11, TypeORM, PostgreSQL |
-| CI/CD | GitHub Actions — сборка под все платформы |
-| Линтер | Biome |
-
----
-
-## Статистика
-
-<p align="center">
-<img src="https://api.star-history.com/svg?repos=zxcloli666/SoundCloud-Desktop&type=Date" alt="Star History" />
-</p>
-
-<p align="center">
-<img src="https://zxcloli666.github.io/download-history/zxcloli666_SoundCloud-Desktop.svg" alt="Download History" />
-</p>
 
 ---
 
 ## Лицензия
 
-MIT. Подробности — в файле [LICENSE](LICENSE).
+MIT, см. файл `LICENSE`.
 
-SoundCloud — торговая марка SoundCloud Ltd. Это приложение не аффилировано с SoundCloud.
-
----
-
-<p align="center">
-<code>soundcloud desktop</code> · <code>soundcloud приложение</code> · <code>soundcloud клиент</code> · <code>soundcloud для пк</code> · <code>soundcloud windows</code> · <code>soundcloud linux</code> · <code>soundcloud macos</code> · <code>soundcloud без рекламы</code> · <code>soundcloud россия</code> · <code>soundcloud в россии</code> · <code>soundcloud не открывается</code> · <code>soundcloud заблокирован</code> · <code>soundcloud blocked russia</code> · <code>soundcloud desktop app</code> · <code>soundcloud desktop client</code> · <code>soundcloud player</code> · <code>soundcloud app for pc</code> · <code>soundcloud без капчи</code> · <code>скачать soundcloud на компьютер</code> · <code>soundcloud desktop download</code> · <code>soundcloud alternative client</code> · <code>soundcloud no ads</code> · <code>музыкальный плеер soundcloud</code>
-</p>
-
-<p align="center">
-<a href="https://github.com/zxcloli666/SoundCloud-Desktop/releases/latest">
-<img src="https://img.shields.io/badge/Скачать_SoundCloud_Desktop-FF5500?style=for-the-badge&logoColor=white" alt="Download" height="50"/>
-</a>
-</p>
+SoundCloud — торговая марка SoundCloud Ltd. Проект не аффилирован с SoundCloud.
