@@ -2,10 +2,16 @@ import { create } from 'zustand';
 import { api } from '../lib/api';
 import { type AudioFeatures, audioAnalyser } from '../lib/audio-analyser';
 import { type FeedItem, fetchAllLikedTracks, type Playlist } from '../lib/hooks';
+import { searchLyrics } from '../lib/lyrics';
 import { rerankTracksWithLLM } from '../lib/llm-rerank';
 import { fetchCrossPlatformRegionalTracks } from '../lib/popular-sources';
 import { QdrantClient, type QdrantScoredPoint } from '../lib/qdrant';
-import { analyzeTrackLanguage, filterByLanguage, type TrackLanguageProfile } from '../lib/language-detection';
+import {
+  analyzeTrackLanguage,
+  detectLanguage,
+  filterByLanguage,
+  type TrackLanguageProfile,
+} from '../lib/language-detection';
 import { useAuthStore } from './auth';
 import { useDislikesStore } from './dislikes';
 import { type Track, usePlayerStore } from './player';
@@ -150,6 +156,206 @@ const parseRegions = (value: string): string[] =>
     .map((r) => r.trim().toLowerCase())
     .filter((r) => /^[a-z]{2}$/.test(r))
     .slice(0, 12);
+
+const COUNTRY_LANGUAGE_HINTS: Record<string, string> = {
+  ru: 'ru',
+  russia: 'ru',
+  россия: 'ru',
+  ua: 'uk',
+  ukraine: 'uk',
+  украина: 'uk',
+  de: 'de',
+  germany: 'de',
+  deutschland: 'de',
+  fr: 'fr',
+  france: 'fr',
+  es: 'es',
+  spain: 'es',
+  pt: 'pt',
+  portugal: 'pt',
+  br: 'pt',
+  brazil: 'pt',
+  pl: 'pl',
+  poland: 'pl',
+  tr: 'tr',
+  turkey: 'tr',
+  jp: 'ja',
+  japan: 'ja',
+  ja: 'ja',
+  kr: 'ko',
+  korea: 'ko',
+  ko: 'ko',
+  cn: 'zh',
+  china: 'zh',
+  zh: 'zh',
+  in: 'hi',
+  india: 'hi',
+  hi: 'hi',
+  sa: 'ar',
+  ae: 'ar',
+  arab: 'ar',
+  arabia: 'ar',
+};
+
+const userRegionLanguageCache = new Map<string, string | null>();
+const lyricsLanguageCache = new Map<number, string | null>();
+
+const inferLanguageFromRegion = (value: string | null | undefined): string | null => {
+  if (!value) return null;
+  const normalized = value.toLowerCase().trim();
+  if (!normalized) return null;
+
+  if (COUNTRY_LANGUAGE_HINTS[normalized]) {
+    return COUNTRY_LANGUAGE_HINTS[normalized];
+  }
+
+  for (const [key, lang] of Object.entries(COUNTRY_LANGUAGE_HINTS)) {
+    if (normalized.includes(key)) {
+      return lang;
+    }
+  }
+
+  return null;
+};
+
+const mapConcurrent = async <T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<R>,
+): Promise<R[]> => {
+  const output = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  const run = async () => {
+    while (nextIndex < items.length) {
+      const current = nextIndex++;
+      output[current] = await worker(items[current]);
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(Math.max(limit, 1), items.length) }, () => run()),
+  );
+
+  return output;
+};
+
+const fetchAuthorRegionLanguage = async (track: Track): Promise<string | null> => {
+  const userUrn = track.user?.urn;
+  if (!userUrn) return null;
+
+  if (userRegionLanguageCache.has(userUrn)) {
+    return userRegionLanguageCache.get(userUrn) ?? null;
+  }
+
+  const localUser = track.user as Track['user'] & { country?: string | null; city?: string | null };
+  const localHint =
+    inferLanguageFromRegion(localUser.country) || inferLanguageFromRegion(localUser.city);
+  if (localHint) {
+    userRegionLanguageCache.set(userUrn, localHint);
+    return localHint;
+  }
+
+  try {
+    const profile = await api<{ country?: string | null; city?: string | null }>(
+      `/users/${encodeURIComponent(userUrn)}`,
+    );
+    const profileHint =
+      inferLanguageFromRegion(profile?.country) || inferLanguageFromRegion(profile?.city);
+    userRegionLanguageCache.set(userUrn, profileHint ?? null);
+    return profileHint ?? null;
+  } catch {
+    userRegionLanguageCache.set(userUrn, null);
+    return null;
+  }
+};
+
+const fetchLyricsLanguage = async (track: Track): Promise<string | null> => {
+  if (!track.id || !track.user?.username || !track.title) return null;
+
+  if (lyricsLanguageCache.has(track.id)) {
+    return lyricsLanguageCache.get(track.id) ?? null;
+  }
+
+  try {
+    const lyrics = await searchLyrics(track.user.username, track.title);
+    const lyricsText =
+      lyrics?.plain || lyrics?.synced?.map((line) => line.text).join(' ').trim() || '';
+
+    if (!lyricsText || lyricsText.length < 12) {
+      lyricsLanguageCache.set(track.id, null);
+      return null;
+    }
+
+    const detected = detectLanguage(lyricsText);
+    lyricsLanguageCache.set(track.id, detected);
+    return detected;
+  } catch {
+    lyricsLanguageCache.set(track.id, null);
+    return null;
+  }
+};
+
+const buildEnrichedLanguageProfile = async (track: Track): Promise<TrackLanguageProfile> => {
+  const base = analyzeTrackLanguage(track);
+  const titleLanguage = detectLanguage(track.title || '');
+  const [regionLanguage, lyricsLanguage] = await Promise.all([
+    fetchAuthorRegionLanguage(track),
+    fetchLyricsLanguage(track),
+  ]);
+
+  const votes = new Map<string, number>();
+  const addVote = (lang: string | null | undefined, weight: number) => {
+    if (!lang) return;
+    votes.set(lang, (votes.get(lang) || 0) + weight);
+  };
+
+  addVote(base.primaryLanguage, 1.4 + base.confidence);
+  addVote(titleLanguage, 1.1);
+  addVote(regionLanguage, 1.6);
+  addVote(lyricsLanguage, 2.4);
+
+  let primaryLanguage = base.primaryLanguage;
+  let maxVote = 0;
+  for (const [lang, weight] of votes.entries()) {
+    if (weight > maxVote) {
+      maxVote = weight;
+      primaryLanguage = lang;
+    }
+  }
+
+  return {
+    trackId: track.id,
+    languages: {
+      ...base.languages,
+      ...(regionLanguage ? { [regionLanguage]: (base.languages[regionLanguage] || 0) + 2 } : {}),
+      ...(lyricsLanguage ? { [lyricsLanguage]: (base.languages[lyricsLanguage] || 0) + 3 } : {}),
+      ...(titleLanguage ? { [titleLanguage]: (base.languages[titleLanguage] || 0) + 1 } : {}),
+    },
+    primaryLanguage,
+    confidence: Math.min(1, maxVote / 3.5),
+  };
+};
+
+const applyLanguageFilterWithEnrichment = async <T extends Track>(
+  tracks: T[],
+  preferredLanguage: string,
+): Promise<{ filtered: T[]; profiles: Map<number, TrackLanguageProfile> }> => {
+  const profilesList = await mapConcurrent(tracks, 8, async (track) =>
+    buildEnrichedLanguageProfile(track),
+  );
+  const profiles = new Map<number, TrackLanguageProfile>();
+  for (const profile of profilesList) {
+    profiles.set(profile.trackId, profile);
+  }
+
+  if (preferredLanguage === 'all') {
+    return { filtered: tracks, profiles };
+  }
+
+  const filtered = filterByLanguage(tracks, profiles, preferredLanguage);
+  return { filtered, profiles };
+};
 
 const rerankIfEnabled = async (
   tracks: Track[],
@@ -816,22 +1022,25 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
         if (rankedCandidates.length > 0) {
           const settings = useSettingsStore.getState();
           let candidatesForFinalize = rankedCandidates;
+          let enrichedProfiles: Map<number, TrackLanguageProfile> | null = null;
 
           if (settings.languageFilterEnabled && settings.preferredLanguage !== 'all') {
-            const qdrantProfiles = new Map<number, TrackLanguageProfile>();
-            for (const track of rankedCandidates) {
-              qdrantProfiles.set(track.id, analyzeTrackLanguage(track));
-            }
-            const languageScoped = filterByLanguage(
+            const {
+              filtered: languageScoped,
+              profiles,
+            } = await applyLanguageFilterWithEnrichment(
               rankedCandidates,
-              qdrantProfiles,
               settings.preferredLanguage,
             );
+            enrichedProfiles = profiles;
             if (languageScoped.length > 0) {
+              console.log(
+                `[SoundWave] Language filter '${settings.preferredLanguage}': ${languageScoped.length}/${rankedCandidates.length} candidates`,
+              );
               candidatesForFinalize = languageScoped;
             } else {
               console.warn(
-                `[SoundWave] No '${settings.preferredLanguage}' tracks in Qdrant candidate pool, fallback to unfiltered`,
+                `[SoundWave] No '${settings.preferredLanguage}' tracks in Qdrant candidate pool after author/lyrics/title checks, fallback to unfiltered`,
               );
             }
           }
@@ -842,7 +1051,9 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
             playedUrns.add(t.urn);
           }
 
-          const languageProfiles = finalTracks.map((t) => analyzeTrackLanguage(t));
+          const languageProfiles = finalTracks.map(
+            (t) => enrichedProfiles?.get(t.id) || analyzeTrackLanguage(t),
+          );
           const existingProfiles = get().detectedLanguages;
           const existingIds = new Set(existingProfiles.map((p) => p.trackId));
           const newProfiles = languageProfiles.filter((p) => !existingIds.has(p.trackId));
@@ -973,18 +1184,22 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
 
     const settings = useSettingsStore.getState();
     let candidatesForFinalize = candidates;
+    let enrichedProfiles: Map<number, TrackLanguageProfile> | null = null;
 
     if (settings.languageFilterEnabled && settings.preferredLanguage !== 'all') {
-      const legacyProfiles = new Map<number, TrackLanguageProfile>();
-      for (const track of candidates) {
-        legacyProfiles.set(track.id, analyzeTrackLanguage(track));
-      }
-      const languageScoped = filterByLanguage(candidates, legacyProfiles, settings.preferredLanguage);
+      const {
+        filtered: languageScoped,
+        profiles,
+      } = await applyLanguageFilterWithEnrichment(candidates, settings.preferredLanguage);
+      enrichedProfiles = profiles;
       if (languageScoped.length > 0) {
+        console.log(
+          `[SoundWave] Language filter '${settings.preferredLanguage}': ${languageScoped.length}/${candidates.length} candidates`,
+        );
         candidatesForFinalize = languageScoped;
       } else {
         console.warn(
-          `[SoundWave] No '${settings.preferredLanguage}' tracks in legacy candidate pool, fallback to unfiltered`,
+          `[SoundWave] No '${settings.preferredLanguage}' tracks in legacy candidate pool after author/lyrics/title checks, fallback to unfiltered`,
         );
       }
     }
@@ -995,7 +1210,7 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
       playedUrns.add(t.urn);
     }
 
-    const languageProfiles = selected.map((t) => analyzeTrackLanguage(t));
+    const languageProfiles = selected.map((t) => enrichedProfiles?.get(t.id) || analyzeTrackLanguage(t));
     const existingProfiles = get().detectedLanguages;
     const existingIds = new Set(existingProfiles.map((p) => p.trackId));
     const newProfiles = languageProfiles.filter((p) => !existingIds.has(p.trackId));
