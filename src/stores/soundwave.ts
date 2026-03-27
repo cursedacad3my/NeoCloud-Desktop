@@ -814,7 +814,29 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
         }
 
         if (rankedCandidates.length > 0) {
-          const finalTracks = await finalizeCandidates(rankedCandidates, currentPreset, 20);
+          const settings = useSettingsStore.getState();
+          let candidatesForFinalize = rankedCandidates;
+
+          if (settings.languageFilterEnabled && settings.preferredLanguage !== 'all') {
+            const qdrantProfiles = new Map<number, TrackLanguageProfile>();
+            for (const track of rankedCandidates) {
+              qdrantProfiles.set(track.id, analyzeTrackLanguage(track));
+            }
+            const languageScoped = filterByLanguage(
+              rankedCandidates,
+              qdrantProfiles,
+              settings.preferredLanguage,
+            );
+            if (languageScoped.length > 0) {
+              candidatesForFinalize = languageScoped;
+            } else {
+              console.warn(
+                `[SoundWave] No '${settings.preferredLanguage}' tracks in Qdrant candidate pool, fallback to unfiltered`,
+              );
+            }
+          }
+
+          const finalTracks = await finalizeCandidates(candidatesForFinalize, currentPreset, 20);
 
           for (const t of finalTracks) {
             playedUrns.add(t.urn);
@@ -831,18 +853,6 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
               profilesMap.set(p.trackId, p);
             }
             set({ detectedLanguages: updatedProfiles, languageProfilesMap: profilesMap });
-          }
-
-          const settings = useSettingsStore.getState();
-          if (settings.languageFilterEnabled && settings.preferredLanguage !== 'all') {
-            const langProfilesMap = get().languageProfilesMap;
-            const filtered = filterByLanguage(finalTracks, langProfilesMap, settings.preferredLanguage);
-            if (filtered.length > 0) {
-              return filtered;
-            }
-            console.warn(
-              `[SoundWave] Language filter produced 0 tracks for '${settings.preferredLanguage}', using unfiltered batch`,
-            );
           }
 
           return finalTracks;
@@ -961,7 +971,25 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
       });
     }
 
-    const selected = await finalizeCandidates(candidates, currentPreset, 20);
+    const settings = useSettingsStore.getState();
+    let candidatesForFinalize = candidates;
+
+    if (settings.languageFilterEnabled && settings.preferredLanguage !== 'all') {
+      const legacyProfiles = new Map<number, TrackLanguageProfile>();
+      for (const track of candidates) {
+        legacyProfiles.set(track.id, analyzeTrackLanguage(track));
+      }
+      const languageScoped = filterByLanguage(candidates, legacyProfiles, settings.preferredLanguage);
+      if (languageScoped.length > 0) {
+        candidatesForFinalize = languageScoped;
+      } else {
+        console.warn(
+          `[SoundWave] No '${settings.preferredLanguage}' tracks in legacy candidate pool, fallback to unfiltered`,
+        );
+      }
+    }
+
+    const selected = await finalizeCandidates(candidatesForFinalize, currentPreset, 20);
 
     for (const t of selected) {
       playedUrns.add(t.urn);
@@ -978,18 +1006,6 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
         profilesMap.set(p.trackId, p);
       }
       set({ detectedLanguages: updatedProfiles, languageProfilesMap: profilesMap });
-    }
-
-    const settings = useSettingsStore.getState();
-    if (settings.languageFilterEnabled && settings.preferredLanguage !== 'all') {
-      const langProfilesMap = get().languageProfilesMap;
-      const filtered = filterByLanguage(selected, langProfilesMap, settings.preferredLanguage);
-      if (filtered.length > 0) {
-        return filtered;
-      }
-      console.warn(
-        `[SoundWave] Language filter produced 0 tracks for '${settings.preferredLanguage}', using unfiltered batch`,
-      );
     }
 
     return selected;
