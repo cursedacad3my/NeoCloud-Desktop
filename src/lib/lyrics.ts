@@ -33,7 +33,10 @@ function parseLRC(lrc: string): LyricLine[] {
   return lines;
 }
 
-function toResultLrclib(entry: { plainLyrics?: string; syncedLyrics?: string }): LyricsResult | null {
+function toResultLrclib(entry: {
+  plainLyrics?: string;
+  syncedLyrics?: string;
+}): LyricsResult | null {
   const plain = entry.plainLyrics || null;
   const synced = entry.syncedLyrics ? parseLRC(entry.syncedLyrics) : null;
   if (!plain && !synced) return null;
@@ -57,7 +60,11 @@ function clean(s: string): string {
 
 /** Aggressively strip all parentheses and brackets */
 function stripBrackets(s: string): string {
-  return s.replace(/\([^)]*\)/g, '').replace(/\[[^\]]*\]/g, '').replace(/\s+/g, ' ').trim();
+  return s
+    .replace(/\([^)]*\)/g, '')
+    .replace(/\[[^\]]*\]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /** Strip everything non-alphanumeric (keep unicode letters) */
@@ -142,10 +149,10 @@ async function searchNetease(
     const lrcRes = await fetch(`${NCM_API}/lyric?id=${id}`, { signal });
     if (!lrcRes.ok) return null;
     const lrcData = await lrcRes.json();
-    
+
     const syncedLrc = lrcData?.lrc?.lyric;
     const tlyric = lrcData?.tlyric?.lyric; // Translated (optional fallback)
-    
+
     if (syncedLrc && syncedLrc.length > 20) {
       return { plain: null, synced: parseLRC(syncedLrc), source: 'netease' };
     }
@@ -190,14 +197,14 @@ async function searchGenius(
   try {
     const q = encodeURIComponent(`${clean(artist)} ${clean(title)}`);
     const searchUrl = `https://genius.com/api/search/multi?per_page=5&q=${q}`;
-    
+
     // Tauri Fetch ignores CORS
     const searchRes = await tauriFetch(searchUrl, { method: 'GET' });
     if (!searchRes.ok) return null;
-    
+
     const searchData = await searchRes.json();
     let hitUrl = null;
-    
+
     // Find the first song hit
     for (const section of searchData?.response?.sections || []) {
       if (section.type === 'song') {
@@ -208,30 +215,30 @@ async function searchGenius(
         }
       }
     }
-    
+
     if (!hitUrl) return null;
 
     // Fetch HTML
     const htmlRes = await tauriFetch(hitUrl, { method: 'GET' });
     if (!htmlRes.ok) return null;
     const html = await htmlRes.text();
-    
+
     // Parse the HTML DOM for lyrics
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
     const containers = doc.querySelectorAll('[data-lyrics-container="true"]');
-    
+
     if (!containers || containers.length === 0) return null;
-    
+
     let plainLyrics = '';
     containers.forEach((container) => {
       // Replace <br> and <br/> with newline
       container.innerHTML = container.innerHTML.replace(/<br\s*\/?>/gi, '\n');
       plainLyrics += container.textContent + '\n';
     });
-    
+
     plainLyrics = plainLyrics.trim();
-    
+
     // Clean Genius-specific headers (Contributors, Title Lyrics, [Текст песни])
     plainLyrics = plainLyrics
       .replace(/^\d+\s*Contributors/i, '')
@@ -242,7 +249,7 @@ async function searchGenius(
     if (plainLyrics.length > 20) {
       return { plain: plainLyrics, synced: null, source: 'genius' };
     }
-    
+
     return null;
   } catch (err) {
     console.warn('Genius Scrape error:', err);
@@ -265,10 +272,12 @@ async function searchTextyl(
     const data = await res.json();
     // Textyl returns an array of objects for synced, or sometimes just objects with `seconds` and `lyrics`
     if (Array.isArray(data) && data.length > 0) {
-      const lines: LyricLine[] = data.map((d: any) => ({
-        time: Number(d.seconds),
-        text: String(d.lyrics)
-      })).filter((l) => !isNaN(l.time) && l.text);
+      const lines: LyricLine[] = data
+        .map((d: any) => ({
+          time: Number(d.seconds),
+          text: String(d.lyrics),
+        }))
+        .filter((l) => !isNaN(l.time) && l.text);
       if (lines.length > 0) {
         return { plain: null, synced: lines, source: 'textyl' };
       }
@@ -292,7 +301,7 @@ export async function searchLyrics(
   try {
     const parsed = splitArtistTitle(scTitle);
     const artist = parsed ? parsed[0] : scUsername;
-    const title  = parsed ? parsed[1] : scTitle;
+    const title = parsed ? parsed[1] : scTitle;
 
     const runChain = async (a: string, t: string) => {
       let r = await searchLrclib(a, t, sig);
@@ -321,7 +330,7 @@ export async function searchLyrics(
     if (artist !== '') {
       res = await runChain('', title);
       if (res) return res;
-      
+
       if (scTitle !== title) {
         res = await runChain('', scTitle);
         if (res) return res;
@@ -331,13 +340,13 @@ export async function searchLyrics(
     // Fallback: Aggressively strip all brackets and parentheses
     const artistNoBrackets = stripBrackets(artist);
     const titleNoBrackets = stripBrackets(title);
-    
+
     if (titleNoBrackets !== title || artistNoBrackets !== artist) {
       if (artistNoBrackets && titleNoBrackets) {
         res = await runChain(artistNoBrackets, titleNoBrackets);
         if (res) return res;
       }
-      
+
       if (titleNoBrackets) {
         res = await runChain('', titleNoBrackets);
         if (res) return res;
