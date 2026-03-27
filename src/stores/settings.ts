@@ -7,7 +7,7 @@ const ENCODED_QDRANT_URL = 'aHR0cHM6Ly9hZDkzOTEzOS00ODE5LTRkM2EtYjJhMS0xMTQ3YTAz
 const ENCODED_QDRANT_COLLECTION = 'c3dfMTI=';
 
 const decodeBase64 = (str: string): string => {
-  return Buffer.from(str, 'base64').toString('utf-8');
+  return atob(str);
 };
 
 const PREDEFINED_QDRANT_URL = decodeBase64(ENCODED_QDRANT_URL);
