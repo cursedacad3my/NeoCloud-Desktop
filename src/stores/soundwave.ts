@@ -836,7 +836,13 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
           const settings = useSettingsStore.getState();
           if (settings.languageFilterEnabled && settings.preferredLanguage !== 'all') {
             const langProfilesMap = get().languageProfilesMap;
-            return filterByLanguage(finalTracks, langProfilesMap, settings.preferredLanguage);
+            const filtered = filterByLanguage(finalTracks, langProfilesMap, settings.preferredLanguage);
+            if (filtered.length > 0) {
+              return filtered;
+            }
+            console.warn(
+              `[SoundWave] Language filter produced 0 tracks for '${settings.preferredLanguage}', using unfiltered batch`,
+            );
           }
 
           return finalTracks;
@@ -977,7 +983,13 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
     const settings = useSettingsStore.getState();
     if (settings.languageFilterEnabled && settings.preferredLanguage !== 'all') {
       const langProfilesMap = get().languageProfilesMap;
-      return filterByLanguage(selected, langProfilesMap, settings.preferredLanguage);
+      const filtered = filterByLanguage(selected, langProfilesMap, settings.preferredLanguage);
+      if (filtered.length > 0) {
+        return filtered;
+      }
+      console.warn(
+        `[SoundWave] Language filter produced 0 tracks for '${settings.preferredLanguage}', using unfiltered batch`,
+      );
     }
 
     return selected;
