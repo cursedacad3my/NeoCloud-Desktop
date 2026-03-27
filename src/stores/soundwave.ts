@@ -201,7 +201,7 @@ const lyricsLanguageCache = new Map<number, string | null>();
 
 const LANGUAGE_SCRIPT_REGEX: Record<string, RegExp> = {
   ru: /[\u0400-\u04FF]/,
-  uk: /[\u0400-\u04FF]/,
+  uk: /[іїєґІЇЄҐ]/,
   ar: /[\u0600-\u06FF]/,
   hi: /[\u0900-\u097F]/,
   ja: /[\u3040-\u30FF\u4E00-\u9FFF]/,
@@ -211,12 +211,12 @@ const LANGUAGE_SCRIPT_REGEX: Record<string, RegExp> = {
 
 const LANGUAGE_SEARCH_TERMS: Record<string, string[]> = {
   ru: ['русский рэп', 'русский поп', 'русская музыка'],
-  uk: ['українська музика', 'український реп', 'ukrainian music'],
-  de: ['deutsche musik', 'deutschrap', 'german pop'],
-  fr: ['musique francaise', 'rap francais', 'french pop'],
+  uk: ['українська музика', 'український реп', 'ukrainian pop', 'ukrainian rap'],
+  de: ['deutsche musik', 'deutschrap', 'deutscher pop', 'german dance'],
+  fr: ['musique francaise', 'rap francais', 'chanson francaise', 'french dance'],
   es: ['musica latina', 'rap espanol', 'spanish pop'],
   pt: ['musica brasileira', 'rap brasileiro', 'portuguese music'],
-  it: ['musica italiana', 'italian rap', 'italian pop'],
+  it: ['musica italiana', 'italian rap', 'italian pop', 'canzone italiana'],
   pl: ['polski rap', 'polska muzyka', 'polish music'],
   tr: ['turkce muzik', 'turkish rap', 'turkish pop'],
   ja: ['japanese music', 'jpop', 'japanese rap'],
@@ -426,12 +426,12 @@ const fetchLanguageSearchTracks = async (preferredLanguage: string): Promise<Tra
   const terms = LANGUAGE_SEARCH_TERMS[preferredLanguage] || [];
   if (terms.length === 0) return [];
 
-  const responses = await Promise.all(
+  const trackResponses = await Promise.all(
     terms.map(async (term) => {
       try {
         const params = new URLSearchParams({
           q: term,
-          limit: '40',
+          limit: '60',
           linked_partitioning: 'false',
         });
         const res = await api<{ collection?: Track[]; next_href?: string | null }>(`/tracks?${params}`);
@@ -445,15 +445,50 @@ const fetchLanguageSearchTracks = async (preferredLanguage: string): Promise<Tra
     }),
   );
 
+  const userResponses = await Promise.all(
+    terms.slice(0, 3).map(async (term) => {
+      try {
+        const userParams = new URLSearchParams({
+          q: term,
+          limit: '12',
+          linked_partitioning: 'false',
+        });
+        const usersRes = await api<{ collection?: Array<{ urn: string }> }>(`/users?${userParams}`);
+        const users = usersRes?.collection || [];
+
+        const tracksByUsers = await Promise.all(
+          users.slice(0, 8).map(async (user) => {
+            try {
+              const tracksParams = new URLSearchParams({
+                limit: '24',
+                linked_partitioning: 'false',
+              });
+              const tRes = await api<{ collection?: Track[] }>(
+                `/users/${encodeURIComponent(user.urn)}/tracks?${tracksParams}`,
+              );
+              return tRes?.collection || [];
+            } catch {
+              return [];
+            }
+          }),
+        );
+
+        return tracksByUsers.flat();
+      } catch {
+        return [];
+      }
+    }),
+  );
+
   const dedup = new Map<string, Track>();
-  for (const list of responses) {
+  for (const list of [...trackResponses, ...userResponses]) {
     for (const track of list) {
       if (track?.urn && track.user?.username && track.title) {
         dedup.set(track.urn, track);
       }
     }
   }
-  return Array.from(dedup.values()).slice(0, 140);
+  return Array.from(dedup.values()).slice(0, 260);
 };
 
 const rerankIfEnabled = async (
