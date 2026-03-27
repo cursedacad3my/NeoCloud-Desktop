@@ -40,6 +40,16 @@ const LANGUAGE_PATTERNS: Record<string, RegExp> = {
   pl: /[\u00C0-\u00FF]/,
 };
 
+const LATIN_LANGUAGE_HINTS: Record<string, string[]> = {
+  de: [' und ', ' ich ', ' nicht ', ' liebe ', ' mit ', ' auf ', ' fuer ', 'für '],
+  fr: [' je ', ' tu ', ' est ', ' avec ', ' dans ', ' une ', ' des ', ' pour '],
+  es: [' que ', ' con ', ' para ', ' esta ', ' esta ', ' una ', ' el ', ' la '],
+  pt: [' voce ', ' você ', ' nao ', ' não ', ' com ', ' uma ', ' pra ', ' meu '],
+  it: [' che ', ' con ', ' per ', ' una ', ' sono ', ' amore ', ' della ', ' mio '],
+  pl: [' sie ', ' się ', ' nie ', ' jest ', ' dla ', ' moje ', ' twoje ', ' oraz '],
+  tr: [' ve ', ' bir ', ' ask ', ' aşk ', ' ben ', ' sen ', ' icin ', ' için '],
+};
+
 function countChars(text: string, pattern: RegExp): number {
   const flags = pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`;
   const globalPattern = new RegExp(pattern.source, flags);
@@ -51,29 +61,65 @@ function getCyrillicVariant(text: string): 'ru' | 'uk' | null {
   const cyrillicChars = text.match(/[\u0400-\u04FF]/g) || [];
   if (cyrillicChars.length === 0) return null;
 
-  let ukraineIndicators = 0;
-  let russianIndicators = 0;
+  let ukIndicators = 0;
+  let ruIndicators = 0;
 
-  for (const char of cyrillicChars) {
-    const code = char.charCodeAt(0);
-    if (code >= 0x0400 && code <= 0x0427) {
-      russianIndicators++;
-    } else if (code >= 0x0428 && code <= 0x0491) {
-      ukraineIndicators++;
-    } else if (code >= 0x0492 && code <= 0x04ff) {
-      ukraineIndicators++;
+  for (const char of text.toLowerCase()) {
+    if ('іїєґ'.includes(char)) ukIndicators += 2;
+    if ('ёыэъ'.includes(char)) ruIndicators += 2;
+    if ('й'.includes(char)) ruIndicators += 0.2;
+  }
+
+  if (ukIndicators > 0 && ruIndicators === 0) {
+    return 'uk';
+  }
+  if (ruIndicators > 0 && ukIndicators === 0) {
+    return 'ru';
+  }
+
+  if (ukIndicators > ruIndicators + 0.8) return 'uk';
+  if (ruIndicators > ukIndicators + 0.8) return 'ru';
+
+  return 'ru';
+}
+
+function detectLatinLanguageByKeywords(text: string): string | null {
+  const normalized = ` ${text.toLowerCase().replace(/[^\p{L}\p{N}\s]+/gu, ' ')} `;
+  let bestLang: string | null = null;
+  let bestScore = 0;
+
+  for (const [lang, hints] of Object.entries(LATIN_LANGUAGE_HINTS)) {
+    let score = 0;
+    for (const hint of hints) {
+      if (normalized.includes(hint)) score += 1;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestLang = lang;
     }
   }
 
-  if (ukraineIndicators > russianIndicators * 0.3) {
-    return 'uk';
-  }
-  return 'ru';
+  return bestScore >= 2 ? bestLang : null;
 }
 
 export function detectLanguage(text: string): string {
   if (!text || text.trim().length < 3) {
     return 'en';
+  }
+
+  const cyrillicVariant = getCyrillicVariant(text);
+  if (cyrillicVariant) return cyrillicVariant;
+
+  for (const scriptLang of ['ar', 'hi', 'ja', 'ko', 'zh']) {
+    const pattern = LANGUAGE_PATTERNS[scriptLang];
+    if (pattern && countChars(text, pattern) > 0) {
+      return scriptLang;
+    }
+  }
+
+  const latinHint = detectLatinLanguageByKeywords(text);
+  if (latinHint) {
+    return latinHint;
   }
 
   for (const [lang, pattern] of Object.entries(LANGUAGE_PATTERNS)) {
@@ -106,6 +152,7 @@ export function analyzeTrackLanguage(track: {
   description?: string;
 }): TrackLanguageProfile {
   const textParts = [track.title, track.user?.username || '', track.description || ''].join(' ');
+  const detected = detectLanguage(textParts);
 
   const langCounts: Record<string, number> = {};
 
@@ -116,7 +163,7 @@ export function analyzeTrackLanguage(track: {
     }
   }
 
-  let primaryLanguage = 'en';
+  let primaryLanguage = detected;
   let maxCount = 0;
   const totalChars = textParts.length || 1;
 
