@@ -11,6 +11,8 @@ use warp::Filter;
 
 use crate::server::cors;
 
+const PREFERRED_STATIC_PORT: u16 = 58334;
+
 fn content_type_for(filename: &str) -> &'static str {
     if filename.ends_with(".png") {
         "image/png"
@@ -163,9 +165,23 @@ pub async fn start(wallpapers_dir: PathBuf, app_handle: tauri::AppHandle) -> u16
 
     let routes = wallpaper_route.or(rpc_open_route).with(cors());
 
-    let addr: SocketAddr = ([127, 0, 0, 1], 0).into();
-    let (addr, server) = warp::serve(routes).bind_ephemeral(addr);
-    tokio::spawn(server);
+    let preferred_addr: SocketAddr = ([127, 0, 0, 1], PREFERRED_STATIC_PORT).into();
+    let addr = match warp::serve(routes.clone()).try_bind_ephemeral(preferred_addr) {
+        Ok((addr, server)) => {
+            tokio::spawn(server);
+            addr
+        }
+        Err(err) => {
+            eprintln!(
+                "[StaticServer] Preferred port {} busy ({}), falling back to random port",
+                PREFERRED_STATIC_PORT, err
+            );
+            let fallback_addr: SocketAddr = ([127, 0, 0, 1], 0).into();
+            let (addr, server) = warp::serve(routes).bind_ephemeral(fallback_addr);
+            tokio::spawn(server);
+            addr
+        }
+    };
 
     println!("[StaticServer] http://127.0.0.1:{}", addr.port());
     addr.port()

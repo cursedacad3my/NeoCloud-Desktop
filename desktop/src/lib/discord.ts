@@ -27,7 +27,9 @@ let lastHandledRpcAt = 0;
 
 const RPC_OPEN_EVENT = 'discord:open-track';
 const RPC_OPEN_DEDUP_MS = 900;
+const RPC_OPEN_FALLBACK_PORT = 58334;
 let cachedRpcOpenPort: number | null = null;
+let rpcPortResolved = false;
 
 function artworkToLarge(url: string | null): string | undefined {
   if (!url) return undefined;
@@ -36,15 +38,18 @@ function artworkToLarge(url: string | null): string | undefined {
 
 async function getListenInAppUrl(track: Track): Promise<string | undefined> {
   if (!cachedRpcOpenPort) {
-    cachedRpcOpenPort = getStaticPort();
+    cachedRpcOpenPort = getStaticPort() || RPC_OPEN_FALLBACK_PORT;
   }
 
-  if (!cachedRpcOpenPort && isTauriRuntime()) {
+  if (!rpcPortResolved && isTauriRuntime()) {
     try {
       const [staticPort] = await invoke<[number, number]>('get_server_ports');
-      cachedRpcOpenPort = staticPort;
+      if (Number.isFinite(staticPort) && staticPort > 0) {
+        cachedRpcOpenPort = staticPort;
+      }
+      rpcPortResolved = true;
     } catch {
-      cachedRpcOpenPort = null;
+      rpcPortResolved = false;
     }
   }
 
