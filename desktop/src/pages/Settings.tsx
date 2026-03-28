@@ -17,7 +17,13 @@ import {
 } from '../lib/cache';
 import { Globe, Link, Loader2, Trash2, X } from '../lib/icons';
 import { useAuthStore } from '../stores/auth';
-import { THEME_PRESETS, useSettingsStore, type DiscordRpcMode } from '../stores/settings';
+import {
+  isDefaultQdrantKeyInUse,
+  THEME_PRESETS,
+  useSettingsStore,
+  type DiscordRpcButtonMode,
+  type DiscordRpcMode,
+} from '../stores/settings';
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -52,6 +58,12 @@ const DISCORD_RPC_MODES: Array<{ id: DiscordRpcMode; labelKey: string }> = [
   { id: 'track', labelKey: 'settings.discordRpcModeTrack' },
   { id: 'artist', labelKey: 'settings.discordRpcModeArtist' },
   { id: 'activity', labelKey: 'settings.discordRpcModeActivity' },
+];
+
+const DISCORD_RPC_BUTTON_MODES: Array<{ id: DiscordRpcButtonMode; labelKey: string }> = [
+  { id: 'soundcloud', labelKey: 'settings.discordRpcButtonModeSoundcloud' },
+  { id: 'app', labelKey: 'settings.discordRpcButtonModeApp' },
+  { id: 'both', labelKey: 'settings.discordRpcButtonModeBoth' },
 ];
 
 /* ── Language Section ─────────────────────────────────────── */
@@ -694,34 +706,54 @@ const SoundWaveSection = React.memo(function SoundWaveSection() {
 
           <div className={`space-y-4 transition-opacity duration-300 ${!qdrantEnabled ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
             <div className="space-y-1.5">
-              <label className="text-[12px] text-white/40 font-medium ml-1">Qdrant URL</label>
+              <label className="text-[12px] text-white/40 font-medium ml-1">
+                {t('settings.qdrantUrlLabel', 'Qdrant URL')}
+              </label>
               <input
                 type="text"
                 value={qdrantUrl}
                 onChange={(e) => setQdrantUrl(e.target.value)}
-                placeholder="http://localhost:6333 or https://xxx.cloud.qdrant.io:6333"
+                placeholder={t(
+                  'settings.qdrantUrlPlaceholder',
+                  'http://localhost:6333 or https://xxx.cloud.qdrant.io:6333',
+                )}
                 className="w-full px-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] text-[13px] text-white/80 placeholder:text-white/15 focus:border-accent/40 focus:bg-white/[0.06] transition-all outline-none"
               />
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-[12px] text-white/40 font-medium ml-1">API Key</label>
+              <label className="text-[12px] text-white/40 font-medium ml-1">
+                {t('settings.qdrantKeyLabel', 'API Key')}
+              </label>
               <input
                 type="password"
                 value={qdrantKey}
                 onChange={(e) => setQdrantKey(e.target.value)}
-                placeholder="Optional for local Qdrant"
+                placeholder={t(
+                  'settings.qdrantKeyPlaceholderDefault',
+                  'Default key is currently in use. Enter your own to override.',
+                )}
                 className="w-full px-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] text-[13px] text-white/80 placeholder:text-white/15 focus:border-accent/40 focus:bg-white/[0.06] transition-all outline-none"
               />
+              {isDefaultQdrantKeyInUse(qdrantKey) && (
+                <p className="text-[11px] text-white/30 ml-1">
+                  {t(
+                    'settings.qdrantKeyDefaultHint',
+                    'Field is empty: built-in default key is active right now.',
+                  )}
+                </p>
+              )}
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-[12px] text-white/40 font-medium ml-1">Collection Name</label>
+              <label className="text-[12px] text-white/40 font-medium ml-1">
+                {t('settings.qdrantCollectionLabel', 'Collection Name')}
+              </label>
               <input
                 type="text"
                 value={qdrantCollection}
                 onChange={(e) => setQdrantCollection(e.target.value)}
-                placeholder="sw_v2"
+                placeholder={t('settings.qdrantCollectionPlaceholder', 'sw_v2')}
                 className="w-full px-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] text-[13px] text-white/80 placeholder:text-white/15 focus:border-accent/40 focus:bg-white/[0.06] transition-all outline-none"
               />
             </div>
@@ -839,6 +871,8 @@ const PlaybackSection = React.memo(function PlaybackSection() {
   const setDiscordRpcMode = useSettingsStore((s) => s.setDiscordRpcMode);
   const discordRpcShowButton = useSettingsStore((s) => s.discordRpcShowButton);
   const setDiscordRpcShowButton = useSettingsStore((s) => s.setDiscordRpcShowButton);
+  const discordRpcButtonMode = useSettingsStore((s) => s.discordRpcButtonMode);
+  const setDiscordRpcButtonMode = useSettingsStore((s) => s.setDiscordRpcButtonMode);
   const targetFramerate = useSettingsStore((s) => s.targetFramerate);
   const unlockFramerate = useSettingsStore((s) => s.unlockFramerate);
   const showFpsCounter = useSettingsStore((s) => s.showFpsCounter);
@@ -1031,8 +1065,12 @@ const PlaybackSection = React.memo(function PlaybackSection() {
 
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[13px] text-white/70 font-medium">{t('settings.discordRpcButton', 'Show SoundCloud Button')}</p>
-                <p className="text-[11px] text-white/30 mt-0.5">{t('settings.discordRpcButtonDesc', 'Adds "Listen on SoundCloud" button to presence')}</p>
+                <p className="text-[13px] text-white/70 font-medium">
+                  {t('settings.discordRpcButton', 'Show RPC buttons')}
+                </p>
+                <p className="text-[11px] text-white/30 mt-0.5">
+                  {t('settings.discordRpcButtonDesc', 'Adds action buttons to presence')}
+                </p>
               </div>
               <button
                 onClick={() => setDiscordRpcShowButton(!discordRpcShowButton)}
@@ -1047,6 +1085,32 @@ const PlaybackSection = React.memo(function PlaybackSection() {
                 />
               </button>
             </div>
+
+            {discordRpcShowButton && (
+              <div className="space-y-2">
+                <p className="text-[13px] text-white/50 font-medium">
+                  {t('settings.discordRpcButtonMode', 'Button action')}
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {DISCORD_RPC_BUTTON_MODES.map((mode) => {
+                    const active = discordRpcButtonMode === mode.id;
+                    return (
+                      <button
+                        key={mode.id}
+                        onClick={() => setDiscordRpcButtonMode(mode.id)}
+                        className={`rounded-2xl border px-3 py-2.5 text-[12px] font-semibold transition-all duration-200 cursor-pointer ${
+                          active
+                            ? 'border-white/[0.16] bg-white/[0.08] text-white/90'
+                            : 'border-white/[0.05] bg-white/[0.02] text-white/45 hover:bg-white/[0.05] hover:text-white/70'
+                        }`}
+                      >
+                        {t(mode.labelKey)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>

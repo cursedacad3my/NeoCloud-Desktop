@@ -2,10 +2,10 @@ import { invoke } from '@tauri-apps/api/core';
 import { appCacheDir, join } from '@tauri-apps/api/path';
 import { exists, mkdir, readDir, remove, stat, writeFile } from '@tauri-apps/plugin-fs';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
-import { getSessionId } from './api';
 import { useSettingsStore } from '../stores/settings';
-
+import { getSessionId } from './api';
 import { API_BASE, getStaticPort } from './constants';
+import { isTauriRuntime } from './runtime';
 
 const AUDIO_DIR = 'audio';
 const ASSETS_DIR = 'assets';
@@ -15,6 +15,7 @@ const MIN_AUDIO_SIZE = 8192;
 let cacheBasePath: string | null = null;
 
 async function getAudioDir(): Promise<string> {
+  if (!isTauriRuntime()) return '';
   if (cacheBasePath) return cacheBasePath;
   const base = await appCacheDir();
   cacheBasePath = await join(base, AUDIO_DIR);
@@ -26,16 +27,23 @@ function urnToFilename(urn: string): string {
   return `${urn.replace(/:/g, '_')}.audio`;
 }
 
+function filenameToUrn(filename: string): string | null {
+  if (!filename.endsWith('.audio')) return null;
+  return filename.slice(0, -'.audio'.length).replace(/_/g, ':');
+}
+
 async function filePath(urn: string): Promise<string> {
   const dir = await getAudioDir();
   return await join(dir, urnToFilename(urn));
 }
 
 export async function getCacheTargetPath(urn: string): Promise<string> {
+  if (!isTauriRuntime()) return urnToFilename(urn);
   return await filePath(urn);
 }
 
 export async function isCached(urn: string): Promise<boolean> {
+  if (!isTauriRuntime()) return false;
   try {
     const path = await filePath(urn);
     if (!(await exists(path))) return false;
@@ -87,10 +95,14 @@ export async function fetchAndCacheTrack(urn: string, signal?: AbortSignal): Pro
       }
       const url = `${API_BASE}/tracks/${encodeURIComponent(urn)}/stream${params.size ? `?${params.toString()}` : ''}`;
 
-      const res = await tauriFetch(url, {
+      const requestInit: RequestInit = {
         headers: sessionId ? { 'x-session-id': sessionId } : {},
         signal,
-      });
+      };
+
+      const res = isTauriRuntime()
+        ? await tauriFetch(url, requestInit)
+        : await fetch(url, requestInit);
 
       if (!res.ok) throw new Error(`Stream ${res.status}`);
 
@@ -98,8 +110,10 @@ export async function fetchAndCacheTrack(urn: string, signal?: AbortSignal): Pro
 
       if (isValidAudio(buffer)) {
         console.log(`💾 [Cache] Download complete for ${urn}. Saving...`);
-        const path = await filePath(urn);
-        await writeFile(path, new Uint8Array(buffer)).catch((e) => console.error('Write fail', e));
+        if (isTauriRuntime()) {
+          const path = await filePath(urn);
+          await writeFile(path, new Uint8Array(buffer)).catch((e) => console.error('Write fail', e));
+        }
       } else {
         console.error(`💾 [Cache] Invalid audio received for ${urn}`);
         throw new Error('Invalid audio');
@@ -125,6 +139,7 @@ export async function fetchAndCacheTrack(urn: string, signal?: AbortSignal): Pro
 }
 
 export async function getCacheSize(): Promise<number> {
+  if (!isTauriRuntime()) return 0;
   try {
     const dir = await getAudioDir();
     const entries = await readDir(dir);
@@ -142,6 +157,7 @@ export async function getCacheSize(): Promise<number> {
 }
 
 export async function clearCache(): Promise<void> {
+  if (!isTauriRuntime()) return;
   try {
     const dir = await getAudioDir();
     const entries = await readDir(dir);
@@ -155,8 +171,37 @@ export async function clearCache(): Promise<void> {
   }
 }
 
+export async function listCachedUrns(): Promise<string[]> {
+  if (!isTauriRuntime()) return [];
+  try {
+    const dir = await getAudioDir();
+    const entries = await readDir(dir);
+    const urns: string[] = [];
+
+    for (const entry of entries) {
+      if (!entry.name || !entry.isFile) continue;
+      const path = `${dir}/${entry.name}`;
+      const info = await stat(path);
+      if ((info.size ?? 0) < MIN_AUDIO_SIZE) {
+        await remove(path).catch(() => {});
+        continue;
+      }
+
+      const urn = filenameToUrn(entry.name);
+      if (urn) {
+        urns.push(urn);
+      }
+    }
+
+    return urns;
+  } catch {
+    return [];
+  }
+}
+
 /** Возвращает абсолютный путь к файлу в кэше */
 export async function getCacheFilePath(urn: string): Promise<string | null> {
+  if (!isTauriRuntime()) return null;
   try {
     const path = await filePath(urn);
     if (!(await exists(path))) return null;
@@ -171,6 +216,7 @@ export async function getCacheFilePath(urn: string): Promise<string | null> {
 let assetsBasePath: string | null = null;
 
 async function getAssetsDir(): Promise<string> {
+  if (!isTauriRuntime()) return '';
   if (assetsBasePath) return assetsBasePath;
   const base = await appCacheDir();
   assetsBasePath = await join(base, ASSETS_DIR);
@@ -179,6 +225,7 @@ async function getAssetsDir(): Promise<string> {
 }
 
 export async function getAssetsCacheSize(): Promise<number> {
+  if (!isTauriRuntime()) return 0;
   try {
     const dir = await getAssetsDir();
     const entries = await readDir(dir);
@@ -197,6 +244,7 @@ export async function getAssetsCacheSize(): Promise<number> {
 }
 
 export async function clearAssetsCache(): Promise<void> {
+  if (!isTauriRuntime()) return;
   try {
     const dir = await getAssetsDir();
     const entries = await readDir(dir);
@@ -216,6 +264,7 @@ export async function clearAssetsCache(): Promise<void> {
 let wallpapersBasePath: string | null = null;
 
 async function getWallpapersDir(): Promise<string> {
+  if (!isTauriRuntime()) return '';
   if (wallpapersBasePath) return wallpapersBasePath;
   const base = await appCacheDir();
   wallpapersBasePath = await join(base, WALLPAPERS_DIR);
@@ -233,6 +282,9 @@ function extensionFromType(mime: string): string {
 
 /** Скачивает картинку по URL и сохраняет в wallpapers/. Возвращает имя файла. */
 export async function downloadWallpaper(url: string): Promise<string> {
+  if (!isTauriRuntime()) {
+    throw new Error('Wallpaper download is only available in Tauri runtime');
+  }
   const res = await tauriFetch(url);
   if (!res.ok) throw new Error(`Download failed: ${res.status}`);
   const ct = res.headers.get('content-type') ?? 'image/jpeg';
@@ -250,6 +302,9 @@ export async function saveWallpaperFromBuffer(
   buffer: ArrayBuffer,
   fileName: string,
 ): Promise<string> {
+  if (!isTauriRuntime()) {
+    throw new Error('Wallpaper save is only available in Tauri runtime');
+  }
   const dir = await getWallpapersDir();
   const ext = fileName.includes('.') ? fileName.substring(fileName.lastIndexOf('.')) : '.jpg';
   const name = `wallpaper_${Date.now()}${ext}`;
@@ -260,6 +315,7 @@ export async function saveWallpaperFromBuffer(
 
 /** Получить имена всех сохранённых wallpapers */
 export async function listWallpapers(): Promise<string[]> {
+  if (!isTauriRuntime()) return [];
   try {
     const dir = await getWallpapersDir();
     const entries = await readDir(dir);
@@ -277,6 +333,7 @@ export async function listWallpapers(): Promise<string[]> {
 
 /** Удалить wallpaper по имени файла */
 export async function removeWallpaper(name: string): Promise<void> {
+  if (!isTauriRuntime()) return;
   const dir = await getWallpapersDir();
   const path = await join(dir, name);
   await remove(path).catch(() => {});
@@ -284,6 +341,7 @@ export async function removeWallpaper(name: string): Promise<void> {
 
 /** HTTP URL для wallpaper по имени файла */
 export function getWallpaperUrl(name: string): string | null {
+  if (!isTauriRuntime()) return null;
   const port = getStaticPort();
   if (!port) return null;
   return `http://127.0.0.1:${port}/wallpapers/${encodeURIComponent(name)}`;
@@ -299,6 +357,9 @@ function sanitizeFilename(name: string): string {
 }
 
 export async function downloadTrack(urn: string, artist: string, title: string): Promise<string> {
+  if (!isTauriRuntime()) {
+    throw new Error('Track download is only available in Tauri runtime');
+  }
   const { save } = await import('@tauri-apps/plugin-dialog');
 
   const filename = sanitizeFilename(`${artist} - ${title}.mp3`);

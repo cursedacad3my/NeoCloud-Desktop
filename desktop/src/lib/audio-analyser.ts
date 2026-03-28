@@ -29,26 +29,41 @@ interface Snapshot {
   rhythmicStability: number;
 }
 
+type WorkerInputMessage =
+  | {
+      type: 'set-track';
+      urn: string | null;
+    }
+  | {
+      type: 'visualizer';
+      bins: ArrayBuffer;
+    }
+  | {
+      type: 'finalize-current';
+    };
+
+type WorkerOutputMessage =
+  | {
+      type: 'track-features';
+      urn: string;
+      features: AudioFeatures;
+    }
+  | {
+      type: 'current-features';
+      features: AudioFeatures | null;
+    };
+
 class AudioAnalyserService {
   private static readonly MAX_FEATURE_CACHE = 600;
   private prevBins = new Uint8Array(64);
   private currentSnapshot: Snapshot | null = null;
-  private history: Snapshot[] = [];
   private trackUrn: string | null = null;
   private trackFrames = 0;
-  private trackAccumulator: Snapshot = {
-    energy: 0,
-    centroid: 0,
-    flatness: 0,
-    rolloff: 0,
-    flux: 0,
-    spectralContrast: 0,
-    subBass: 0,
-    midPresence: 0,
-    dynamicRange: 0,
-    rhythmicStability: 0,
-  };
+  private trackAccumulator: Snapshot = this.createEmptySnapshot();
   private cache = new Map<string, AudioFeatures>();
+  private worker: Worker | null = null;
+  private workerMode = false;
+  private workerCurrentFeatures: AudioFeatures | null = null;
 
   // Onset detection for BPM
   private fluxHistory: number[] = [];
@@ -56,18 +71,75 @@ class AudioAnalyserService {
   private lastOnsetTime = 0;
 
   constructor() {
+    this.initWorker();
+
     listen<number[]>('audio:visualizer', (event) => {
-      this.processBins(new Uint8Array(event.payload));
+      const bins = new Uint8Array(event.payload);
+
+      if (this.workerMode && this.worker) {
+        this.worker.postMessage(
+          {
+            type: 'visualizer',
+            bins: bins.buffer,
+          } satisfies WorkerInputMessage,
+          [bins.buffer],
+        );
+        return;
+      }
+
+      this.processBins(bins);
     });
   }
 
-  setTrack(urn: string | null) {
-    if (this.trackUrn && this.trackFrames > 20) {
-      this.finalizeTrack();
+  private initWorker() {
+    if (typeof Worker === 'undefined') return;
+
+    try {
+      const worker = new Worker(new URL('./audio-analyser.worker.ts', import.meta.url), {
+        type: 'module',
+      });
+
+      worker.onmessage = (event: MessageEvent<WorkerOutputMessage>) => {
+        const message = event.data;
+        if (message.type === 'track-features') {
+          this.rememberFeatures(message.urn, message.features);
+          return;
+        }
+        this.workerCurrentFeatures = message.features;
+      };
+
+      worker.onerror = (event) => {
+        console.warn('[AudioAnalyser] Worker failed, falling back to main thread', event.message);
+        this.disableWorker();
+      };
+
+      this.worker = worker;
+      this.workerMode = true;
+    } catch (error) {
+      console.warn('[AudioAnalyser] Worker init failed, falling back to main thread', error);
+      this.disableWorker();
     }
-    this.trackUrn = urn;
+  }
+
+  private disableWorker() {
+    if (this.worker) {
+      this.worker.terminate();
+      this.worker = null;
+    }
+
+    this.workerMode = false;
+    this.workerCurrentFeatures = null;
+    this.prevBins.fill(0);
+    this.currentSnapshot = null;
     this.trackFrames = 0;
-    this.trackAccumulator = {
+    this.trackAccumulator = this.createEmptySnapshot();
+    this.fluxHistory = [];
+    this.onsets = [];
+    this.lastOnsetTime = 0;
+  }
+
+  private createEmptySnapshot(): Snapshot {
+    return {
       energy: 0,
       centroid: 0,
       flatness: 0,
@@ -79,8 +151,44 @@ class AudioAnalyserService {
       dynamicRange: 0,
       rhythmicStability: 0,
     };
+  }
+
+  private rememberFeatures(urn: string, features: AudioFeatures) {
+    if (this.cache.has(urn)) {
+      this.cache.delete(urn);
+    }
+    this.cache.set(urn, features);
+
+    while (this.cache.size > AudioAnalyserService.MAX_FEATURE_CACHE) {
+      const oldestKey = this.cache.keys().next().value;
+      if (!oldestKey) break;
+      this.cache.delete(oldestKey);
+    }
+  }
+
+  setTrack(urn: string | null) {
+    if (this.workerMode && this.worker) {
+      this.trackUrn = urn;
+      this.trackFrames = 0;
+      this.currentSnapshot = null;
+      this.workerCurrentFeatures = null;
+      this.worker.postMessage({
+        type: 'set-track',
+        urn,
+      } satisfies WorkerInputMessage);
+      return;
+    }
+
+    if (this.trackUrn && this.trackFrames > 20) {
+      this.finalizeTrack();
+    }
+    this.trackUrn = urn;
+    this.trackFrames = 0;
+    this.currentSnapshot = null;
+    this.trackAccumulator = this.createEmptySnapshot();
     this.onsets = [];
     this.fluxHistory = [];
+    this.prevBins.fill(0);
   }
 
   private processBins(bins: Uint8Array) {
@@ -109,11 +217,11 @@ class AudioAnalyserService {
     let cumEnergy = 0;
     let rolloff = 0;
     for (let i = 0; i < 64; i++) {
-       cumEnergy += bins[i] / 255;
-       if (cumEnergy >= threshold85) {
-         rolloff = i / 64;
-         break;
-       }
+      cumEnergy += bins[i] / 255;
+      if (cumEnergy >= threshold85) {
+        rolloff = i / 64;
+        break;
+      }
     }
 
     let flux = 0;
@@ -195,9 +303,6 @@ class AudioAnalyserService {
         }
       }
     }
-
-    this.history.push(snapshot);
-    if (this.history.length > 100) this.history.shift();
   }
 
   private finalizeTrack() {
@@ -235,16 +340,7 @@ class AudioAnalyserService {
       rhythmicStability: avg.rhythmicStability,
     };
 
-    if (this.cache.has(this.trackUrn)) {
-      this.cache.delete(this.trackUrn);
-    }
-    this.cache.set(this.trackUrn, next);
-
-    while (this.cache.size > AudioAnalyserService.MAX_FEATURE_CACHE) {
-      const oldestKey = this.cache.keys().next().value;
-      if (!oldestKey) break;
-      this.cache.delete(oldestKey);
-    }
+    this.rememberFeatures(this.trackUrn, next);
   }
 
   private computeMood(avg: Snapshot) {
@@ -296,11 +392,26 @@ class AudioAnalyserService {
     return Math.sqrt(varSum / values.length);
   }
 
+  finalizeCurrentTrackIfReady() {
+    if (this.workerMode && this.worker) {
+      this.worker.postMessage({ type: 'finalize-current' } satisfies WorkerInputMessage);
+      return;
+    }
+
+    if (!this.trackUrn) return;
+    if (this.trackFrames < 20) return;
+    this.finalizeTrack();
+  }
+
   getFeatures(urn: string): AudioFeatures | null {
     return this.cache.get(urn) || null;
   }
 
   getCurrentFeatures(): AudioFeatures | null {
+    if (this.workerMode) {
+      return this.workerCurrentFeatures;
+    }
+
     if (!this.currentSnapshot) return null;
     const s = this.currentSnapshot;
     const { valence, arousal } = this.computeMood(s);

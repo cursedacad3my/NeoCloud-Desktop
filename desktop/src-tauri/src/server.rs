@@ -26,8 +26,8 @@ pub fn cors() -> warp::cors::Builder {
         .expose_headers(vec!["content-range", "content-length", "accept-ranges"])
 }
 
-pub async fn start_all(wallpapers_dir: PathBuf) -> (u16, u16) {
-    let static_port = crate::static_server::start(wallpapers_dir).await;
+pub async fn start_all(wallpapers_dir: PathBuf, app_handle: tauri::AppHandle) -> (u16, u16) {
+    let static_port = crate::static_server::start(wallpapers_dir, app_handle).await;
     let proxy_port = crate::proxy_server::start().await;
     (static_port, proxy_port)
 }

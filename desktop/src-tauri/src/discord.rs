@@ -17,11 +17,13 @@ pub struct DiscordTrackInfo {
     artist: String,
     artwork_url: Option<String>,
     track_url: Option<String>,
+    app_url: Option<String>,
     duration_secs: Option<i64>,
     elapsed_secs: Option<i64>,
     is_playing: Option<bool>,
     mode: Option<DiscordRpcMode>,
     show_button: Option<bool>,
+    button_mode: Option<DiscordRpcButtonMode>,
     lyric_line: Option<String>,
 }
 
@@ -32,6 +34,14 @@ pub enum DiscordRpcMode {
     Track,
     Artist,
     Activity,
+}
+
+#[derive(Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiscordRpcButtonMode {
+    Soundcloud,
+    App,
+    Both,
 }
 
 #[tauri::command]
@@ -84,6 +94,9 @@ pub fn discord_set_activity(
     let is_playing = track.is_playing.unwrap_or(true);
     let mode = track.mode.unwrap_or(DiscordRpcMode::Text);
     let show_button = track.show_button.unwrap_or(true);
+    let button_mode = track
+        .button_mode
+        .unwrap_or(DiscordRpcButtonMode::Soundcloud);
     let text_mode_details = if matches!(mode, DiscordRpcMode::Text) {
         Some(format!("{} - {}", track.title, track.artist))
     } else {
@@ -141,8 +154,28 @@ pub fn discord_set_activity(
     }
 
     if show_button {
-        if let Some(ref url) = track.track_url {
-            activity = activity.buttons(vec![Button::new("Listen on SoundCloud", url)]);
+        let mut buttons = Vec::with_capacity(2);
+
+        if matches!(
+            button_mode,
+            DiscordRpcButtonMode::Soundcloud | DiscordRpcButtonMode::Both
+        ) {
+            if let Some(ref url) = track.track_url {
+                buttons.push(Button::new("Listen on SoundCloud", url));
+            }
+        }
+
+        if matches!(
+            button_mode,
+            DiscordRpcButtonMode::App | DiscordRpcButtonMode::Both
+        ) {
+            if let Some(ref url) = track.app_url {
+                buttons.push(Button::new("Listen in App", url));
+            }
+        }
+
+        if !buttons.is_empty() {
+            activity = activity.buttons(buttons);
         }
     }
 

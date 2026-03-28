@@ -2,6 +2,7 @@ import * as Slider from '@radix-ui/react-slider';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Sparkles } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { artworkPanelApi } from '../../components/music/LyricsPanel';
@@ -95,11 +96,25 @@ export const ProgressSlider = React.memo(() => {
         if (!r.ok) {
           throw new Error(`HTTP ${r.status}`);
         }
-        const contentType = r.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) {
+        const contentType = (r.headers.get('content-type') || '').toLowerCase();
+        const canParseJson =
+          !contentType ||
+          contentType.includes('application/json') ||
+          contentType.includes('text/json') ||
+          contentType.includes('application/octet-stream') ||
+          contentType.includes('text/plain');
+        if (!canParseJson) {
           throw new Error(`Invalid waveform content-type: ${contentType || 'unknown'}`);
         }
-        return r.json();
+        const raw = await r.text();
+        if (!raw.trim()) {
+          throw new Error('Empty waveform payload');
+        }
+        try {
+          return JSON.parse(raw);
+        } catch {
+          throw new Error(`Invalid waveform JSON payload (${contentType || 'unknown'})`);
+        }
       })
       .then((d) => {
         if (!d || !d.samples) return;
@@ -283,7 +298,9 @@ const VolumeSlider = React.memo(({ className = '' }: { className?: string }) => 
           if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') e.preventDefault();
         }}
         onWheel={(e) => {
-          e.preventDefault();
+          if (e.cancelable) {
+            e.preventDefault();
+          }
           setVolume(Math.max(0, Math.min(200, volume + (e.deltaY < 0 ? 2 : -2))));
         }}
       >
@@ -453,6 +470,17 @@ const MOOD_OPTIONS: Array<{ mood: MoodLabel; key: string }> = [
   { mood: 'sad', key: 'track.moodSad' },
 ];
 
+const MOOD_POPOVER_GAP_PX = 8;
+const MOOD_POPOVER_EDGE_PADDING_PX = 10;
+const MOOD_POPOVER_WIDTH_PX = 240;
+const MOOD_POPOVER_MIN_WIDTH_PX = 136;
+
+type MoodPopoverPosition = {
+  top: number;
+  left: number;
+  width: number;
+};
+
 function MoodCorrectionButton({ track }: { track: Track }) {
   const { t } = useTranslation();
   const trainTrackMood = useSoundWaveStore((s) => s.trainTrackMood);
@@ -460,7 +488,9 @@ function MoodCorrectionButton({ track }: { track: Track }) {
   const [open, setOpen] = useState(false);
   const [pendingMood, setPendingMood] = useState<MoodLabel | null>(null);
   const [sending, setSending] = useState(false);
+  const [popoverPosition, setPopoverPosition] = useState<MoodPopoverPosition | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset local mood UI only on track switch
   useEffect(() => {
@@ -474,8 +504,10 @@ function MoodCorrectionButton({ track }: { track: Track }) {
 
     const onPointerDown = (event: MouseEvent) => {
       const node = rootRef.current;
+      const popoverNode = popoverRef.current;
       if (!node) return;
-      if (!node.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (!node.contains(target) && !popoverNode?.contains(target)) {
         setOpen(false);
         setPendingMood(null);
       }
@@ -496,6 +528,53 @@ function MoodCorrectionButton({ track }: { track: Track }) {
       window.removeEventListener('keydown', onKeyDown);
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!open) {
+      setPopoverPosition(null);
+      return;
+    }
+
+    const recalcPlacement = () => {
+      const node = rootRef.current;
+      if (!node) return;
+
+      const rect = node.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const maxWidth = Math.max(
+        MOOD_POPOVER_MIN_WIDTH_PX,
+        viewportWidth - MOOD_POPOVER_EDGE_PADDING_PX * 2,
+      );
+      const width = Math.min(MOOD_POPOVER_WIDTH_PX, maxWidth);
+
+      let left = rect.right + MOOD_POPOVER_GAP_PX;
+      if (left + width > viewportWidth - MOOD_POPOVER_EDGE_PADDING_PX) {
+        left = rect.left - MOOD_POPOVER_GAP_PX - width;
+      }
+
+      left = Math.min(
+        Math.max(left, MOOD_POPOVER_EDGE_PADDING_PX),
+        viewportWidth - MOOD_POPOVER_EDGE_PADDING_PX - width,
+      );
+
+      const estimatedHeight = pendingMood ? 158 : 136;
+      const halfHeight = estimatedHeight / 2;
+      const top = Math.min(
+        Math.max(rect.top + rect.height / 2, MOOD_POPOVER_EDGE_PADDING_PX + halfHeight),
+        viewportHeight - MOOD_POPOVER_EDGE_PADDING_PX - halfHeight,
+      );
+
+      setPopoverPosition({ top, left, width });
+    };
+
+    recalcPlacement();
+    window.addEventListener('resize', recalcPlacement);
+
+    return () => {
+      window.removeEventListener('resize', recalcPlacement);
+    };
+  }, [open, pendingMood]);
 
   const confirmMood = async () => {
     if (!pendingMood || sending) return;
@@ -533,61 +612,72 @@ function MoodCorrectionButton({ track }: { track: Track }) {
         <Sparkles size={14} />
       </button>
 
-      {open && (
-        <div className="absolute left-full top-1/2 z-40 ml-2 w-[240px] -translate-y-1/2 rounded-2xl border border-white/10 bg-[#121214] p-3 shadow-2xl shadow-black/60">
-          {!pendingMood ? (
-            <div className="space-y-2">
-              <p className="text-[11px] font-semibold text-white/50">
-                {t('track.moodChoose', 'Choose the correct mood')}
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                {MOOD_OPTIONS.map((option) => (
+      {open &&
+        popoverPosition &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            className="fixed z-[340] -translate-y-1/2 rounded-2xl border border-white/10 bg-[#121214] p-3 shadow-2xl shadow-black/60"
+            style={{
+              top: popoverPosition.top,
+              left: popoverPosition.left,
+              width: popoverPosition.width,
+            }}
+          >
+            {!pendingMood ? (
+              <div className="space-y-2">
+                <p className="text-[11px] font-semibold text-white/50">
+                  {t('track.moodChoose', 'Choose the correct mood')}
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {MOOD_OPTIONS.map((option) => (
+                    <button
+                      key={option.mood}
+                      type="button"
+                      onClick={() => setPendingMood(option.mood)}
+                      className="rounded-xl border border-white/10 bg-white/[0.03] px-2.5 py-2 text-[11px] font-semibold text-white/80 transition-all hover:bg-white/[0.08] hover:text-white"
+                    >
+                      {t(option.key)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                <p className="text-[11px] font-semibold text-white/80">
+                  {t('track.moodConfirmPrompt', {
+                    mood: t(
+                      MOOD_OPTIONS.find((option) => option.mood === pendingMood)?.key ||
+                        'track.moodEnergetic',
+                    ),
+                  })}
+                </p>
+                <p className="text-[10px] text-white/45">
+                  {t('track.moodConfirmHint', 'This will train SoundWave recommendations.')}
+                </p>
+                <div className="flex items-center gap-2">
                   <button
-                    key={option.mood}
                     type="button"
-                    onClick={() => setPendingMood(option.mood)}
-                    className="rounded-xl border border-white/10 bg-white/[0.03] px-2.5 py-2 text-[11px] font-semibold text-white/80 transition-all hover:bg-white/[0.08] hover:text-white"
+                    onClick={confirmMood}
+                    disabled={sending}
+                    className="flex-1 rounded-xl bg-accent px-2.5 py-2 text-[11px] font-semibold text-black transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {t(option.key)}
+                    {t('track.moodConfirmYes', 'Yes')}
                   </button>
-                ))}
+                  <button
+                    type="button"
+                    onClick={() => setPendingMood(null)}
+                    disabled={sending}
+                    className="flex-1 rounded-xl border border-white/10 bg-white/[0.03] px-2.5 py-2 text-[11px] font-semibold text-white/70 transition-all hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {t('track.moodConfirmNo', 'No')}
+                  </button>
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="space-y-2.5">
-              <p className="text-[11px] font-semibold text-white/80">
-                {t('track.moodConfirmPrompt', {
-                  mood: t(
-                    MOOD_OPTIONS.find((option) => option.mood === pendingMood)?.key ||
-                      'track.moodEnergetic',
-                  ),
-                })}
-              </p>
-              <p className="text-[10px] text-white/45">
-                {t('track.moodConfirmHint', 'This will train SoundWave recommendations.')}
-              </p>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={confirmMood}
-                  disabled={sending}
-                  className="flex-1 rounded-xl bg-accent px-2.5 py-2 text-[11px] font-semibold text-black transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {t('track.moodConfirmYes', 'Yes')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPendingMood(null)}
-                  disabled={sending}
-                  className="flex-1 rounded-xl border border-white/10 bg-white/[0.03] px-2.5 py-2 text-[11px] font-semibold text-white/70 transition-all hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {t('track.moodConfirmNo', 'No')}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+            )}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
@@ -715,7 +805,11 @@ const TrackInfo = React.memo(() => {
       </div>
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex items-center">
-          <StreamQualityBadge quality={currentTrack.streamQuality} access={currentTrack.access} />
+          <StreamQualityBadge
+            quality={currentTrack.streamQuality}
+            codec={currentTrack.streamCodec}
+            access={currentTrack.access}
+          />
         </div>
         <div className="flex items-center gap-1.5 min-w-0">
           <p

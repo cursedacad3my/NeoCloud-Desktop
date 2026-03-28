@@ -98,3 +98,5 @@ window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     throw error;
   }
 }) as typeof fetch;
+
+export {};

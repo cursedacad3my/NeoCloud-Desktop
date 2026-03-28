@@ -50,6 +50,37 @@ const SOURCE_LABELS: Record<LyricsSource, string> = {
   textyl: 'Textyl',
 };
 
+const resolveTrackPermalink = async (track: Track): Promise<string | null> => {
+  const direct = track.permalink_url?.trim();
+  if (direct) return direct;
+
+  try {
+    const refreshed = await api<Pick<Track, 'permalink_url'>>(
+      `/tracks/${encodeURIComponent(track.urn)}`,
+      { quietHttpErrors: true },
+    );
+    const refreshedPermalink = refreshed.permalink_url?.trim();
+    if (refreshedPermalink) return refreshedPermalink;
+  } catch {
+    // noop
+  }
+
+  if (track.id > 0) {
+    return `https://soundcloud.com/tracks/${track.id}`;
+  }
+
+  return null;
+};
+
+const openExternal = async (url: string) => {
+  try {
+    const { openUrl } = await import('@tauri-apps/plugin-opener');
+    await openUrl(url);
+  } catch {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+};
+
 const LyricsSourceBadge = React.memo(
   ({ source, onSearch }: { source: LyricsSource; onSearch?: () => void }) => (
     <div className="flex items-center justify-between px-12 pt-3 pb-0">
@@ -273,6 +304,7 @@ const FullscreenVolumeSlider = React.memo(() => {
 /* ── Shared: transport controls + like ────────────────────── */
 
 const Controls = React.memo(({ track }: { track: Track }) => {
+  const { t } = useTranslation();
   const isPlaying = usePlayerStore((s) => s.isPlaying);
   const togglePlay = usePlayerStore((s) => s.togglePlay);
   const next = usePlayerStore((s) => s.next);
@@ -283,6 +315,14 @@ const Controls = React.memo(({ track }: { track: Track }) => {
 
   const ctrl =
     'w-11 h-11 rounded-full flex items-center justify-center transition-all duration-150 cursor-pointer hover:bg-white/[0.06] outline-none';
+
+  const handleOpenInSoundCloud = () => {
+    void (async () => {
+      const permalink = await resolveTrackPermalink(track);
+      if (!permalink) return;
+      await openExternal(permalink);
+    })();
+  };
 
   return (
     <div className="flex items-center justify-center gap-2">
@@ -329,8 +369,8 @@ const Controls = React.memo(({ track }: { track: Track }) => {
       <button
         type="button"
         className={ctrl}
-        onClick={() => window.open(track.permalink_url, '_blank')}
-        title="Open in SoundCloud"
+        onClick={handleOpenInSoundCloud}
+        title={t('player.openInSoundCloud', 'Open in SoundCloud')}
       >
         <ExternalLink size={18} className="text-white/30 hover:text-white/60" />
       </button>
@@ -626,6 +666,7 @@ export const LyricsPanel = React.memo(() => {
       <div className="absolute top-6 left-6 z-20 pointer-events-none">
         <StreamQualityBadge
           quality={track.streamQuality}
+          codec={track.streamCodec}
           access={track.access}
           className="backdrop-blur-sm"
         />
@@ -791,6 +832,7 @@ export const ArtworkPanel = React.memo(() => {
       <div className="absolute top-6 left-6 z-20 pointer-events-none">
         <StreamQualityBadge
           quality={track.streamQuality}
+          codec={track.streamCodec}
           access={track.access}
           className="backdrop-blur-sm"
         />

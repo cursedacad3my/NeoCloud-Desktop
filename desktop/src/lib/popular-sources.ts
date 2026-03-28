@@ -190,7 +190,7 @@ export async function fetchCrossPlatformRegionalTracks(
     .sort((a, b) => a.rank - b.rank)
     .slice(0, maxCandidates);
 
-  const resolved = await runLimited(candidates, 6, async (candidate) => {
+  const resolved = await runLimited(candidates, 3, async (candidate) => {
     try {
       return await resolveCandidateToTrack(candidate, searchTracks);
     } catch {

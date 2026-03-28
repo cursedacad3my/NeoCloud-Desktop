@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import type { Track } from '../stores/player';
 import { api } from './api';
 import { initLikedUrns } from './likes';
+import { rememberLikedTracks, rememberTracks } from './offline-index';
 
 /* ── Types ─────────────────────────────────────────────────────── */
 
@@ -326,6 +327,11 @@ export function useLikedTracks(limit = 30) {
     if (tracks.length > 0) initLikedUrns(tracks);
   }, [tracks]);
 
+  useEffect(() => {
+    if (!query.data) return;
+    void rememberLikedTracks(tracks);
+  }, [query.data, tracks]);
+
   return { tracks, ...query };
 }
 
@@ -350,10 +356,14 @@ export function fetchAllLikedTracks(pageSize = 200): Promise<Track[]> {
       const page = await api<TrackListResponse>(`/me/likes/tracks?${params}`);
       for (const t of page.collection) all.push(t);
 
+      void rememberTracks(page.collection);
+
       const next = page.next_href ? extractPagination(page.next_href) : undefined;
       if (!next?.cursor) break;
       cursor = next.cursor;
     }
+
+    void rememberLikedTracks(all);
 
     return all;
   })();
@@ -1009,6 +1019,12 @@ export function useFallbackTracks() {
 
 type RelatedPool = Map<string, { count: number; track: Track }>;
 
+const normalizeTrackRouteParam = (trackUrn: string): string => {
+  const parts = trackUrn.split(':');
+  const tail = parts[parts.length - 1] || trackUrn;
+  return /^\d+$/.test(tail) ? tail : trackUrn;
+};
+
 /**
  * Shared pool: fetches related tracks for up to 30 random liked tracks,
  * counts frequency of each related track. Used by both Recommended and Discover.
@@ -1028,7 +1044,10 @@ export function useRelatedPool(likedTracks: Track[]) {
     queryFn: async () => {
       const results = await Promise.all(
         seedUrns.map((urn) =>
-          api<TrackListResponse>(`/tracks/${encodeURIComponent(urn)}/related?limit=20`).catch(
+          api<TrackListResponse>(
+            `/tracks/${encodeURIComponent(normalizeTrackRouteParam(urn))}/related?limit=20`,
+            { quietHttpErrors: true },
+          ).catch(
             () => ({ collection: [] as Track[] }),
           ),
         ),

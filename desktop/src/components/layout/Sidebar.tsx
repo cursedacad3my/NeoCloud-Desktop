@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { NavLink } from 'react-router-dom';
 import {
   Clock,
+  Download,
   Globe,
   Home,
   Library,
@@ -11,6 +12,7 @@ import {
   Search,
   Settings,
 } from '../../lib/icons';
+import { useAppStatusStore } from '../../stores/app-status';
 import { useAuthStore } from '../../stores/auth';
 import { useSettingsStore } from '../../stores/settings';
 import { Avatar } from '../ui/Avatar';
@@ -25,12 +27,20 @@ const navItems = [
   { to: '/', icon: Home, label: 'nav.home' },
   { to: '/search', icon: Search, label: 'nav.search' },
   { to: '/library', icon: Library, label: 'nav.library' },
+  { to: '/offline', icon: Download, label: 'nav.offline' },
   { to: '/library?tab=history', icon: Clock, label: 'library.history' },
 ];
 
 export const Sidebar = React.memo(() => {
   const { t, i18n } = useTranslation();
   const user = useAuthStore((s) => s.user);
+  const appMode = useAppStatusStore((s) =>
+    s.soundcloudBlocked
+      ? 'blocked'
+      : !s.navigatorOnline || !s.backendReachable
+        ? 'offline'
+        : 'online',
+  );
   const collapsed = useSettingsStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useSettingsStore((s) => s.toggleSidebar);
 
@@ -52,15 +62,19 @@ export const Sidebar = React.memo(() => {
             key={item.to}
             to={item.to}
             title={collapsed ? t(item.label) : undefined}
-            className={({ isActive }) =>
-              `flex items-center gap-3 rounded-xl text-[13px] font-medium transition-all duration-200 ease-[var(--ease-apple)] ${
+            className={({ isActive }) => {
+              let stateClass = 'text-white/40 hover:text-white/70 hover:bg-white/[0.04]';
+              if (isActive) {
+                stateClass =
+                  'text-white bg-white/[0.07] shadow-[inset_0_0.5px_0_rgba(255,255,255,0.1)]';
+              } else if (item.to === '/offline' && appMode !== 'online') {
+                stateClass = 'text-white/82 bg-accent/[0.08] ring-1 ring-accent/15';
+              }
+
+              return `flex items-center gap-3 rounded-xl text-[13px] font-medium transition-all duration-200 ease-[var(--ease-apple)] ${
                 collapsed ? 'justify-center px-0 py-2.5' : 'px-3 py-2.5'
-              } ${
-                isActive
-                  ? 'text-white bg-white/[0.07] shadow-[inset_0_0.5px_0_rgba(255,255,255,0.1)]'
-                  : 'text-white/40 hover:text-white/70 hover:bg-white/[0.04]'
-              }`
-            }
+              } ${stateClass}`;
+            }}
           >
             <item.icon size={18} strokeWidth={1.8} />
             {!collapsed && t(item.label)}

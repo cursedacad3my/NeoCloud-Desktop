@@ -24,6 +24,7 @@ export interface Track {
   bpm?: number;
   access?: 'playable' | 'preview' | 'blocked';
   streamQuality?: 'hq' | 'lq';
+  streamCodec?: string;
   user: {
     id: number;
     urn: string;
@@ -48,13 +49,14 @@ interface PlayerState {
   queue: Track[];
   originalQueue: Track[] | null;
   queueIndex: number;
+  queueSource: 'manual' | 'soundwave';
   isPlaying: boolean;
   volume: number;
   volumeBeforeMute: number;
   shuffle: boolean;
   repeat: RepeatMode;
 
-  play: (track: Track, queue?: Track[]) => void;
+  play: (track: Track, queue?: Track[], source?: 'manual' | 'soundwave') => void;
   playFromQueue: (index: number) => void;
   pause: () => void;
   resume: () => void;
@@ -72,6 +74,7 @@ interface PlayerState {
   toggleRepeat: () => void;
   setCurrentTrackAccess: (access: Track['access']) => void;
   setCurrentTrackStreamQuality: (quality: Track['streamQuality']) => void;
+  setCurrentTrackStreamCodec: (codec: Track['streamCodec']) => void;
 }
 
 export const usePlayerStore = create<PlayerState>()(
@@ -81,13 +84,14 @@ export const usePlayerStore = create<PlayerState>()(
       queue: [],
       originalQueue: null,
       queueIndex: -1,
+      queueSource: 'manual',
       isPlaying: false,
       volume: 50,
       volumeBeforeMute: 50,
       shuffle: false,
       repeat: 'off',
 
-      play: (track, queue) => {
+      play: (track, queue, source = 'manual') => {
         if (queue) {
           const { shuffle } = get();
           const idx = queue.findIndex((t) => t.urn === track.urn);
@@ -101,6 +105,7 @@ export const usePlayerStore = create<PlayerState>()(
               currentTrack: track,
               queue: [track, ...rest],
               queueIndex: 0,
+              queueSource: source,
               isPlaying: true,
               originalQueue: original,
             });
@@ -109,6 +114,7 @@ export const usePlayerStore = create<PlayerState>()(
               currentTrack: track,
               queue,
               queueIndex: realIdx,
+              queueSource: source,
               isPlaying: true,
               originalQueue: null,
             });
@@ -119,6 +125,7 @@ export const usePlayerStore = create<PlayerState>()(
             currentTrack: track,
             queue: [...currentQueue, track],
             queueIndex: currentQueue.length,
+            queueSource: source,
             isPlaying: true,
           });
         }
@@ -271,7 +278,7 @@ export const usePlayerStore = create<PlayerState>()(
           return { queue, queueIndex };
         }),
 
-      clearQueue: () => set({ queue: [], queueIndex: -1, originalQueue: null }),
+      clearQueue: () => set({ queue: [], queueIndex: -1, queueSource: 'manual', originalQueue: null }),
 
       toggleShuffle: () => {
         const { shuffle, queue, queueIndex, currentTrack } = get();
@@ -311,6 +318,8 @@ export const usePlayerStore = create<PlayerState>()(
         set((s) => (s.currentTrack ? { currentTrack: { ...s.currentTrack, access } } : {})),
       setCurrentTrackStreamQuality: (streamQuality) =>
         set((s) => (s.currentTrack ? { currentTrack: { ...s.currentTrack, streamQuality } } : {})),
+      setCurrentTrackStreamCodec: (streamCodec) =>
+        set((s) => (s.currentTrack ? { currentTrack: { ...s.currentTrack, streamCodec } } : {})),
     }),
     {
       name: 'sc-player',

@@ -2,9 +2,9 @@ import {
   Body,
   Controller,
   Delete,
+  NotFoundException,
   Get,
   Headers,
-  HttpStatus,
   Param,
   Post,
   Put,
@@ -171,10 +171,7 @@ export class TracksController {
     );
 
     if (!streamData) {
-      return {
-        statusCode: HttpStatus.NOT_FOUND,
-        error: 'Track not available for streaming',
-      };
+      throw new NotFoundException('Track not available for streaming');
     }
 
     const { stream, headers } = streamData;

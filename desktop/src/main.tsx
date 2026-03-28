@@ -6,10 +6,8 @@ import App from './App';
 import i18n from './i18n';
 import { ApiError } from './lib/api';
 import { setServerPorts } from './lib/constants';
+import { isTauriRuntime } from './lib/runtime';
 import './lib/audio';
-import './lib/discord';
-import './lib/tray';
-import './lib/scproxy';
 import './index.css';
 import { useSettingsStore } from './stores/settings';
 
@@ -17,6 +15,7 @@ useSettingsStore.persist.onFinishHydration((state) => {
   if (state.language && state.language !== i18n.language) {
     i18n.changeLanguage(state.language);
   }
+  if (!isTauriRuntime()) return;
   invoke('audio_set_eq', { enabled: state.eqEnabled, gains: state.eqGains }).catch(console.error);
   invoke('audio_set_normalization', { enabled: state.normalizeVolume }).catch(console.error);
 });
@@ -71,18 +70,36 @@ async function registerServiceWorker(proxyPort: number) {
 async function bootstrap() {
   let staticPort = 1420;
   let proxyPort = 1420;
-  
-  try {
-    const ports = await invoke<[number, number]>('get_server_ports');
-    staticPort = ports[0];
-    proxyPort = ports[1];
-  } catch (e) {
-    console.warn('Running outside Tauri or failed to get ports. Using defaults:', e);
+
+  let tauriRuntime = isTauriRuntime();
+  if (!tauriRuntime) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    tauriRuntime = isTauriRuntime();
   }
-  
+
+  if (tauriRuntime) {
+    await Promise.all([
+      import('./lib/scproxy'),
+      import('./lib/discord'),
+      import('./lib/tray'),
+    ]);
+    try {
+      const ports = await invoke<[number, number]>('get_server_ports');
+      staticPort = ports[0];
+      proxyPort = ports[1];
+    } catch (e) {
+      console.warn('Failed to get Tauri ports. Using defaults:', e);
+    }
+  } else {
+    console.warn('[Bootstrap] Browser mode detected (without Tauri runtime).');
+    console.warn('[Bootstrap] For full app behavior run `pnpm dev:mcp` and use the Tauri window.');
+  }
+
   setServerPorts(staticPort, proxyPort);
 
-  await registerServiceWorker(proxyPort);
+  if (tauriRuntime) {
+    await registerServiceWorker(proxyPort);
+  }
 
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>

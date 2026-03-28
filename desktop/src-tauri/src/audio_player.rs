@@ -621,6 +621,7 @@ pub struct AudioState {
     audio_tx: std::sync::mpsc::Sender<AudioThreadCmd>,
     /// Saved source bytes for seek fallback (reload + seek forward)
     source_bytes: Mutex<Option<Vec<u8>>>,
+    seek_in_progress: AtomicBool,
     pub visualizer_tx: Mutex<Option<std::sync::mpsc::SyncSender<Vec<f32>>>>,
 }
 
@@ -762,6 +763,7 @@ pub fn init() -> AudioState {
         media_tx: Mutex::new(None),
         audio_tx: cmd_tx,
         source_bytes: Mutex::new(None),
+        seek_in_progress: AtomicBool::new(false),
         visualizer_tx: Mutex::new(None),
     }
 }
@@ -787,6 +789,9 @@ pub fn start_tick_emitter(app: &AppHandle) {
             let player = state.player.lock().unwrap();
             if let Some(ref p) = *player {
                 if p.empty() {
+                    if state.seek_in_progress.load(Ordering::Relaxed) {
+                        continue;
+                    }
                     // Suppress track-end during device error (BT profile switch etc.)
                     if !state.device_error.load(Ordering::Relaxed)
                         && !state.ended_notified.swap(true, Ordering::Relaxed)
@@ -1064,6 +1069,7 @@ pub fn audio_load_file(
     Ok(AudioLoadResult {
         duration_secs,
         stream_quality: None,
+        stream_content_type: None,
     })
 }
 
@@ -1071,6 +1077,7 @@ pub fn audio_load_file(
 pub struct AudioLoadResult {
     pub duration_secs: Option<f64>,
     pub stream_quality: Option<String>,
+    pub stream_content_type: Option<String>,
 }
 
 /// Load and play audio from a URL (downloads fully, optionally caches).
@@ -1102,11 +1109,17 @@ pub async fn audio_load_url(
         .and_then(|v| v.to_str().ok())
         .map(|v| v.to_ascii_lowercase())
         .filter(|v| v == "hq" || v == "lq");
+    let stream_content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.to_ascii_lowercase());
     let bytes = resp.bytes().await.map_err(|e| e.to_string())?.to_vec();
 
     let empty_result = AudioLoadResult {
         duration_secs: None,
         stream_quality: None,
+        stream_content_type: None,
     };
 
     // Stale check after download — another track may have started loading
@@ -1215,6 +1228,7 @@ pub async fn audio_load_url(
     Ok(AudioLoadResult {
         duration_secs,
         stream_quality,
+        stream_content_type,
     })
 }
 
@@ -1258,6 +1272,20 @@ pub fn audio_stop(state: tauri::State<'_, AudioState>) {
 
 #[tauri::command]
 pub fn audio_seek(position: f64, state: tauri::State<'_, AudioState>) -> Result<(), String> {
+    struct SeekInProgressGuard<'a> {
+        state: &'a AudioState,
+    }
+
+    impl Drop for SeekInProgressGuard<'_> {
+        fn drop(&mut self) {
+            self.state.seek_in_progress.store(false, Ordering::Relaxed);
+        }
+    }
+
+    state.seek_in_progress.store(true, Ordering::Relaxed);
+    let _seek_guard = SeekInProgressGuard { state: &state };
+    state.ended_notified.store(true, Ordering::Relaxed);
+
     let target = Duration::from_secs_f64(position);
 
     // Try normal seek first
@@ -1265,6 +1293,9 @@ pub fn audio_seek(position: f64, state: tauri::State<'_, AudioState>) -> Result<
         let player = state.player.lock().unwrap();
         if let Some(ref p) = *player {
             if p.try_seek(target).is_ok() {
+                state.ended_notified.store(false, Ordering::Relaxed);
+                state.has_track.store(true, Ordering::Relaxed);
+                state.device_error.store(false, Ordering::Relaxed);
                 return Ok(());
             }
         }
@@ -1314,6 +1345,8 @@ pub fn audio_seek(position: f64, state: tauri::State<'_, AudioState>) -> Result<
     }
     *player = Some(Arc::new(new_player));
     state.ended_notified.store(false, Ordering::Relaxed);
+    state.has_track.store(true, Ordering::Relaxed);
+    state.device_error.store(false, Ordering::Relaxed);
 
     if was_paused {
         if let Some(ref p) = *player {

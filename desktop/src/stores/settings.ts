@@ -3,8 +3,51 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { tauriStorage } from '../lib/tauri-storage';
 
+const ENCODED_QDRANT_URL = 'aHR0cHM6Ly9hZDkzOTEzOS00ODE5LTRkM2EtYjJhMS0xMTQ3YTAzZjU5YWMuc2EtZWFzdC0xLTAuYXdzLmNvdXJkLnFkcmFudC5pbyA2MzMz';
+const ENCODED_QDRANT_KEY =
+  'ZXlKaGJHY2lPaUpJVXpJMU5pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SmhZMk5sYzNNaU9pSnRJbjAuZ3ZTVlZEbFNEMms1OWxDb2ktSms2bFQtUUVPXzRYbXBVQmJ6eDNEdDRTOA==';
+const ENCODED_QDRANT_COLLECTION = 'c3dfMTI=';
+
+const decodeBase64 = (str: string): string => {
+  return atob(str);
+};
+
+const STORAGE_KEY_PREFIX = 'enc:qdrant:v1:';
+const STORAGE_KEY_SEED = 'scd_qdrant_seed_v1';
+
+const encodeQdrantKeyForStorage = (value: string): string => {
+  const normalized = value.trim();
+  if (!normalized) return '';
+  const transformed = Array.from(normalized, (char, index) => {
+    const seed = STORAGE_KEY_SEED.charCodeAt(index % STORAGE_KEY_SEED.length);
+    return String.fromCharCode(char.charCodeAt(0) ^ seed);
+  }).join('');
+  return `${STORAGE_KEY_PREFIX}${btoa(transformed)}`;
+};
+
+const decodeQdrantKeyFromStorage = (value: string): string => {
+  if (!value) return '';
+  if (!value.startsWith(STORAGE_KEY_PREFIX)) return value;
+
+  try {
+    const encoded = value.slice(STORAGE_KEY_PREFIX.length);
+    const transformed = atob(encoded);
+    return Array.from(transformed, (char, index) => {
+      const seed = STORAGE_KEY_SEED.charCodeAt(index % STORAGE_KEY_SEED.length);
+      return String.fromCharCode(char.charCodeAt(0) ^ seed);
+    }).join('');
+  } catch {
+    return '';
+  }
+};
+
+const PREDEFINED_QDRANT_URL = decodeBase64(ENCODED_QDRANT_URL);
+const PREDEFINED_QDRANT_KEY = decodeBase64(ENCODED_QDRANT_KEY);
+const PREDEFINED_QDRANT_COLLECTION = decodeBase64(ENCODED_QDRANT_COLLECTION);
+
 export type ThemePreset = 'soundcloud' | 'dark' | 'neon' | 'forest' | 'crimson' | 'custom';
 export type DiscordRpcMode = 'text' | 'track' | 'artist' | 'activity';
+export type DiscordRpcButtonMode = 'soundcloud' | 'app' | 'both';
 
 export interface ThemePresetDef {
   accent: string;
@@ -70,6 +113,7 @@ export interface SettingsState {
   discordRpc: boolean;
   discordRpcMode: DiscordRpcMode;
   discordRpcShowButton: boolean;
+  discordRpcButtonMode: DiscordRpcButtonMode;
   qdrantEnabled: boolean;
   qdrantUrl: string;
   qdrantKey: string;
@@ -99,6 +143,10 @@ export interface SettingsState {
   hardwareAcceleration: boolean;
   classicPlaybar: boolean;
   soundwavePresetKey: string;
+  languageFilterEnabled: boolean;
+  preferredLanguage: string;
+  soundwaveGenreStrict: boolean;
+  soundwaveSelectedGenres: string[];
   setAccentColor: (color: string) => void;
   setBgPrimary: (bg: string) => void;
   setThemePreset: (id: ThemePreset) => void;
@@ -122,6 +170,7 @@ export interface SettingsState {
   setDiscordRpc: (v: boolean) => void;
   setDiscordRpcMode: (mode: DiscordRpcMode) => void;
   setDiscordRpcShowButton: (show: boolean) => void;
+  setDiscordRpcButtonMode: (mode: DiscordRpcButtonMode) => void;
   setQdrantEnabled: (v: boolean) => void;
   setQdrantUrl: (v: string) => void;
   setQdrantKey: (v: string) => void;
@@ -151,14 +200,18 @@ export interface SettingsState {
   setHardwareAcceleration: (enabled: boolean) => void;
   setClassicPlaybar: (v: boolean) => void;
   setSoundwavePresetKey: (key: string) => void;
+  setLanguageFilterEnabled: (v: boolean) => void;
+  setPreferredLanguage: (lang: string) => void;
+  setSoundwaveGenreStrict: (v: boolean) => void;
+  setSoundwaveSelectedGenres: (genres: string[]) => void;
   resetTheme: () => void;
 }
 
 const DEFAULT_EQ_GAINS = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
-const ENV_QDRANT_URL = import.meta.env.VITE_QDRANT_URL?.trim() || '';
-const ENV_QDRANT_KEY = import.meta.env.VITE_QDRANT_API_KEY?.trim() || '';
-const ENV_QDRANT_COLLECTION = import.meta.env.VITE_QDRANT_COLLECTION?.trim() || 'sw_v2';
+const ENV_QDRANT_URL = import.meta.env.VITE_QDRANT_URL?.trim() || PREDEFINED_QDRANT_URL;
+const ENV_QDRANT_KEY = import.meta.env.VITE_QDRANT_API_KEY?.trim() || PREDEFINED_QDRANT_KEY;
+const ENV_QDRANT_COLLECTION = import.meta.env.VITE_QDRANT_COLLECTION?.trim() || PREDEFINED_QDRANT_COLLECTION;
 const ENV_QDRANT_ENABLED_RAW = import.meta.env.VITE_QDRANT_ENABLED;
 const ENV_QDRANT_ENABLED = ENV_QDRANT_ENABLED_RAW
   ? ['1', 'true', 'yes', 'on'].includes(ENV_QDRANT_ENABLED_RAW.toLowerCase())
@@ -170,6 +223,13 @@ const ENV_REGIONAL_TREND_REGIONS =
 const ENV_LLM_RERANK = (import.meta.env.VITE_SW_LLM_RERANK || '').toLowerCase() === 'true';
 const ENV_LLM_ENDPOINT = import.meta.env.VITE_SW_LLM_ENDPOINT?.trim() || 'http://127.0.0.1:11434';
 const ENV_LLM_MODEL = import.meta.env.VITE_SW_LLM_MODEL?.trim() || 'qwen2.5:14b';
+
+export const resolveQdrantApiKey = (rawKey: string): string => {
+  const normalized = rawKey.trim();
+  return normalized || ENV_QDRANT_KEY;
+};
+
+export const isDefaultQdrantKeyInUse = (rawKey: string): boolean => rawKey.trim().length === 0;
 
 const DEFAULTS = {
   accentColor: '#ff5500',
@@ -194,9 +254,10 @@ const DEFAULTS = {
   discordRpc: true,
   discordRpcMode: 'text' as DiscordRpcMode,
   discordRpcShowButton: true,
+  discordRpcButtonMode: 'soundcloud' as DiscordRpcButtonMode,
   qdrantEnabled: ENV_QDRANT_ENABLED,
   qdrantUrl: ENV_QDRANT_URL,
-  qdrantKey: ENV_QDRANT_KEY,
+  qdrantKey: '',
   qdrantCollection: ENV_QDRANT_COLLECTION,
   regionalTrendSeed: ENV_REGIONAL_TREND_SEED,
   regionalTrendRegions: ENV_REGIONAL_TREND_REGIONS,
@@ -223,6 +284,10 @@ const DEFAULTS = {
   hardwareAcceleration: true,
   classicPlaybar: false,
   soundwavePresetKey: 'work',
+  languageFilterEnabled: false,
+  preferredLanguage: 'all',
+  soundwaveGenreStrict: true,
+  soundwaveSelectedGenres: [],
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -275,9 +340,10 @@ export const useSettingsStore = create<SettingsState>()(
       setDiscordRpc: (discordRpc) => set({ discordRpc }),
       setDiscordRpcMode: (discordRpcMode) => set({ discordRpcMode }),
       setDiscordRpcShowButton: (discordRpcShowButton) => set({ discordRpcShowButton }),
+      setDiscordRpcButtonMode: (discordRpcButtonMode) => set({ discordRpcButtonMode }),
       setQdrantEnabled: (qdrantEnabled) => set({ qdrantEnabled }),
       setQdrantUrl: (qdrantUrl) => set({ qdrantUrl }),
-      setQdrantKey: (qdrantKey) => set({ qdrantKey }),
+      setQdrantKey: (qdrantKey) => set({ qdrantKey: qdrantKey.trim() }),
       setQdrantCollection: (qdrantCollection) => set({ qdrantCollection }),
       setRegionalTrendSeed: (regionalTrendSeed) => set({ regionalTrendSeed }),
       setRegionalTrendRegions: (regionalTrendRegions) => set({ regionalTrendRegions }),
@@ -310,19 +376,42 @@ export const useSettingsStore = create<SettingsState>()(
       setHardwareAcceleration: (hardwareAcceleration) => set({ hardwareAcceleration }),
       setClassicPlaybar: (classicPlaybar) => set({ classicPlaybar }),
       setSoundwavePresetKey: (soundwavePresetKey) => set({ soundwavePresetKey }),
+      setLanguageFilterEnabled: (languageFilterEnabled) => set({ languageFilterEnabled }),
+      setPreferredLanguage: (preferredLanguage) => set({ preferredLanguage }),
+      setSoundwaveGenreStrict: (soundwaveGenreStrict) => set({ soundwaveGenreStrict }),
+      setSoundwaveSelectedGenres: (soundwaveSelectedGenres) => set({ soundwaveSelectedGenres }),
       resetTheme: () => set(DEFAULTS),
     }),
     {
       name: 'sc-settings',
       storage: createJSONStorage(() => tauriStorage),
-      version: 9,
+      version: 10,
       migrate: (persistedState) => {
         const state = (persistedState && typeof persistedState === 'object'
           ? persistedState
           : {}) as Partial<SettingsState>;
+        const decodedKey = decodeQdrantKeyFromStorage((state.qdrantKey as string) || '');
+        const normalizedKey = decodedKey.trim();
+        const qdrantKey =
+          normalizedKey && normalizedKey !== ENV_QDRANT_KEY ? normalizedKey : DEFAULTS.qdrantKey;
         return {
           ...DEFAULTS,
           ...state,
+          qdrantKey,
+        };
+      },
+      merge: (persistedState, currentState) => {
+        const state = (persistedState && typeof persistedState === 'object'
+          ? persistedState
+          : {}) as Partial<SettingsState>;
+        const decodedKey = decodeQdrantKeyFromStorage((state.qdrantKey as string) || '');
+        const normalizedKey = decodedKey.trim();
+        const qdrantKey =
+          normalizedKey && normalizedKey !== ENV_QDRANT_KEY ? normalizedKey : DEFAULTS.qdrantKey;
+        return {
+          ...currentState,
+          ...state,
+          qdrantKey,
         };
       },
       partialize: (s) => ({
@@ -348,9 +437,10 @@ export const useSettingsStore = create<SettingsState>()(
         discordRpc: s.discordRpc,
         discordRpcMode: s.discordRpcMode,
         discordRpcShowButton: s.discordRpcShowButton,
+        discordRpcButtonMode: s.discordRpcButtonMode,
         qdrantEnabled: s.qdrantEnabled,
         qdrantUrl: s.qdrantUrl,
-        qdrantKey: s.qdrantKey,
+        qdrantKey: encodeQdrantKeyForStorage(s.qdrantKey),
         qdrantCollection: s.qdrantCollection,
         regionalTrendSeed: s.regionalTrendSeed,
         regionalTrendRegions: s.regionalTrendRegions,
@@ -378,6 +468,10 @@ export const useSettingsStore = create<SettingsState>()(
         visualizerMirror: s.visualizerMirror,
         visualizerFade: s.visualizerFade,
         visualizerBars: s.visualizerBars,
+        languageFilterEnabled: s.languageFilterEnabled,
+        preferredLanguage: s.preferredLanguage,
+        soundwaveGenreStrict: s.soundwaveGenreStrict,
+        soundwaveSelectedGenres: s.soundwaveSelectedGenres,
       }),
     },
   ),

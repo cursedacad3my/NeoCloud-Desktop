@@ -131,7 +131,7 @@ pub fn run() {
                 .ok();
 
             let (static_port, proxy_port) =
-                rt.block_on(server::start_all(wallpapers_dir));
+                rt.block_on(server::start_all(wallpapers_dir, app.handle().clone()));
 
             std::thread::spawn(move || {
                 rt.block_on(std::future::pending::<()>());

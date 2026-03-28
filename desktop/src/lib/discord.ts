@@ -1,8 +1,12 @@
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
 import { useSettingsStore } from '../stores/settings';
+import { api } from './api';
 import { getCurrentTime, subscribe as subscribeAudioTime } from './audio';
+import { getStaticPort } from './constants';
+import { isTauriRuntime } from './runtime';
 
 let connected = false;
 let lastConnectAttemptAt = 0;
@@ -18,9 +22,41 @@ let seekSyncTimer: ReturnType<typeof setTimeout> | null = null;
 
 export let currentLyricLine: string | null = null;
 
+let lastHandledRpcUrn: string | null = null;
+let lastHandledRpcAt = 0;
+
+const RPC_OPEN_EVENT = 'discord:open-track';
+const RPC_OPEN_DEDUP_MS = 900;
+let cachedRpcOpenPort: number | null = null;
+
 function artworkToLarge(url: string | null): string | undefined {
   if (!url) return undefined;
   return url.replace(/-[^-./]+(\.[^.]+)$/, '-t500x500$1');
+}
+
+async function getListenInAppUrl(track: Track): Promise<string | undefined> {
+  if (!cachedRpcOpenPort) {
+    cachedRpcOpenPort = getStaticPort();
+  }
+
+  if (!cachedRpcOpenPort && isTauriRuntime()) {
+    try {
+      const [staticPort] = await invoke<[number, number]>('get_server_ports');
+      cachedRpcOpenPort = staticPort;
+    } catch {
+      cachedRpcOpenPort = null;
+    }
+  }
+
+  if (!cachedRpcOpenPort) return undefined;
+  return `http://127.0.0.1:${cachedRpcOpenPort}/rpc/open?urn=${encodeURIComponent(track.urn)}`;
+}
+
+function navigateToTrack(urn: string) {
+  const targetPath = `/track/${encodeURIComponent(urn)}`;
+  if (window.location.pathname === targetPath) return;
+  window.history.pushState({}, '', targetPath);
+  window.dispatchEvent(new PopStateEvent('popstate'));
 }
 
 async function ensureConnected(): Promise<boolean> {
@@ -79,7 +115,10 @@ async function updatePresence(track: Track) {
 
   try {
     const isPlaying = usePlayerStore.getState().isPlaying;
-    const { discordRpcMode, discordRpcShowButton } = useSettingsStore.getState();
+    const { discordRpcMode, discordRpcShowButton, discordRpcButtonMode } =
+      useSettingsStore.getState();
+
+    const appOpenUrl = await getListenInAppUrl(track);
 
     await invoke('discord_set_activity', {
       track: {
@@ -94,6 +133,8 @@ async function updatePresence(track: Track) {
         is_playing: isPlaying,
         mode: discordRpcMode,
         show_button: discordRpcShowButton,
+        button_mode: discordRpcButtonMode,
+        app_url: appOpenUrl,
         lyric_line: currentLyricLine || undefined,
       },
     });
@@ -162,7 +203,8 @@ useSettingsStore.subscribe((state, prev) => {
   const rpcSettingsChanged =
     state.discordRpc !== prev.discordRpc ||
     state.discordRpcMode !== prev.discordRpcMode ||
-    state.discordRpcShowButton !== prev.discordRpcShowButton;
+    state.discordRpcShowButton !== prev.discordRpcShowButton ||
+    state.discordRpcButtonMode !== prev.discordRpcButtonMode;
 
   if (!rpcSettingsChanged) return;
 
@@ -183,6 +225,42 @@ useSettingsStore.subscribe((state, prev) => {
     requestDiscordUpdate(currentTrack);
   }
 });
+
+async function handleRpcOpenTrack(urnRaw: string) {
+  const urn = urnRaw.trim();
+  if (!urn) return;
+
+  const now = Date.now();
+  if (urn === lastHandledRpcUrn && now - lastHandledRpcAt < RPC_OPEN_DEDUP_MS) {
+    return;
+  }
+  lastHandledRpcUrn = urn;
+  lastHandledRpcAt = now;
+
+  navigateToTrack(urn);
+
+  try {
+    const track = await api<Track>(`/tracks/${encodeURIComponent(urn)}`, {
+      quietHttpErrors: true,
+    });
+    usePlayerStore.getState().play(track, [track]);
+  } catch (error) {
+    console.warn('[Discord] Failed to open track from RPC link:', error);
+  }
+}
+
+if (isTauriRuntime()) {
+  const windowWithFlag = window as typeof window & {
+    __scdDiscordRpcOpenListenerBound?: boolean;
+  };
+
+  if (!windowWithFlag.__scdDiscordRpcOpenListenerBound) {
+    windowWithFlag.__scdDiscordRpcOpenListenerBound = true;
+    void listen<string>(RPC_OPEN_EVENT, (event) => {
+      void handleRpcOpenTrack(event.payload || '');
+    });
+  }
+}
 
 subscribeAudioTime(() => {
   const { currentTrack, isPlaying } = usePlayerStore.getState();

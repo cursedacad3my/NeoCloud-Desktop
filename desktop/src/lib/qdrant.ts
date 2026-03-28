@@ -248,6 +248,7 @@ export class QdrantClient {
         user_urn: t.track.user?.urn || '',
         user_avatar_url: t.track.user?.avatar_url || '',
         user_permalink_url: t.track.user?.permalink_url || '',
+        track_permalink_url: t.track.permalink_url || '',
         duration: t.track.duration || 0,
         playback_count: t.track.playback_count || 0,
         likes_count: t.track.likes_count || t.track.favoritings_count || 0,
