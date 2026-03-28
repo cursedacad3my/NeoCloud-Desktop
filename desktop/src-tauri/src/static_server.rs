@@ -81,8 +81,36 @@ fn rpc_open_response(title: &str, body: &str) -> Response<Body> {
         .unwrap()
 }
 
+fn emit_rpc_open_to_app(app: &tauri::AppHandle, urn: &str) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+
+        let _ = app.emit("discord:open-track", urn.to_string());
+        let _ = window.emit("discord:open-track", urn.to_string());
+
+        if let Ok(urn_json) = serde_json::to_string(urn) {
+            let js = format!("window.__scdRpcOpenTrack?.({urn_json});");
+            let _ = window.eval(&js);
+        }
+    }
+}
+
+fn transparent_png_bytes() -> &'static [u8] {
+    // 1x1 transparent PNG
+    &[
+        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0,
+        1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 248,
+        255, 255, 63, 0, 5, 254, 2, 254, 167, 53, 129, 132, 0, 0, 0, 0, 73, 69, 78, 68, 174,
+        66, 96, 130,
+    ]
+}
+
 pub async fn start(wallpapers_dir: PathBuf, app_handle: tauri::AppHandle) -> u16 {
     let wallpapers = wallpapers_dir.clone();
+    let rpc_open_app = app_handle.clone();
+    let rpc_pixel_app = app_handle;
 
     let wallpaper_route = warp::path("wallpapers")
         .and(warp::path::param::<String>())
@@ -129,7 +157,7 @@ pub async fn start(wallpapers_dir: PathBuf, app_handle: tauri::AppHandle) -> u16
 
     let rpc_open_route = warp::path!("rpc" / "open")
         .and(warp::query::<HashMap<String, String>>())
-        .and(with_app_handle(app_handle))
+        .and(with_app_handle(rpc_open_app))
         .and_then(|query: HashMap<String, String>, app: tauri::AppHandle| async move {
             let urn = query
                 .get("urn")
@@ -143,19 +171,7 @@ pub async fn start(wallpapers_dir: PathBuf, app_handle: tauri::AppHandle) -> u16
                 ));
             };
 
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-
-                let _ = app.emit("discord:open-track", urn.clone());
-                let _ = window.emit("discord:open-track", urn.clone());
-
-                if let Ok(urn_json) = serde_json::to_string(&urn) {
-                    let js = format!("window.__scdRpcOpenTrack?.({urn_json});");
-                    let _ = window.eval(&js);
-                }
-            }
+            emit_rpc_open_to_app(&app, &urn);
 
             Ok(rpc_open_response(
                 "Opened in SoundCloud Desktop",
@@ -163,7 +179,31 @@ pub async fn start(wallpapers_dir: PathBuf, app_handle: tauri::AppHandle) -> u16
             ))
         });
 
-    let routes = wallpaper_route.or(rpc_open_route).with(cors());
+    let rpc_pixel_route = warp::path!("rpc" / "pixel")
+        .and(warp::query::<HashMap<String, String>>())
+        .and(with_app_handle(rpc_pixel_app))
+        .and_then(|query: HashMap<String, String>, app: tauri::AppHandle| async move {
+            let urn = query
+                .get("urn")
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty());
+
+            if let Some(urn) = urn {
+                emit_rpc_open_to_app(&app, &urn);
+            }
+
+            Ok::<_, warp::Rejection>(
+                Response::builder()
+                    .status(StatusCode::OK)
+                    .header("Content-Type", "image/png")
+                    .header("Cache-Control", "no-store")
+                    .header("Access-Control-Allow-Origin", "*")
+                    .body(Body::from(transparent_png_bytes().to_vec()))
+                    .unwrap(),
+            )
+        });
+
+    let routes = wallpaper_route.or(rpc_open_route).or(rpc_pixel_route).with(cors());
 
     let preferred_addr: SocketAddr = ([127, 0, 0, 1], PREFERRED_STATIC_PORT).into();
     let addr = match warp::serve(routes.clone()).try_bind_ephemeral(preferred_addr) {

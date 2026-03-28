@@ -5,7 +5,7 @@ import { usePlayerStore } from '../stores/player';
 import { useSettingsStore } from '../stores/settings';
 import { api } from './api';
 import { getCurrentTime, subscribe as subscribeAudioTime } from './audio';
-import { getStaticPort } from './constants';
+import { GITHUB_OWNER, GITHUB_REPO, getStaticPort } from './constants';
 import { isTauriRuntime } from './runtime';
 
 let connected = false;
@@ -28,6 +28,7 @@ let lastHandledRpcAt = 0;
 const RPC_OPEN_EVENT = 'discord:open-track';
 const RPC_OPEN_DEDUP_MS = 900;
 const RPC_OPEN_FALLBACK_PORT = 58334;
+const RPC_BRIDGE_URL = `https://cdn.jsdelivr.net/gh/${GITHUB_OWNER}/${GITHUB_REPO}@main/desktop/public/rpc-open.html`;
 let cachedRpcOpenPort: number | null = null;
 let rpcPortResolved = false;
 
@@ -54,7 +55,14 @@ async function getListenInAppUrl(track: Track): Promise<string | undefined> {
   }
 
   if (!cachedRpcOpenPort) return undefined;
-  return `http://127.0.0.1:${cachedRpcOpenPort}/rpc/open?urn=${encodeURIComponent(track.urn)}`;
+
+  const downloadUrl = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
+  const params = new URLSearchParams({
+    urn: track.urn,
+    port: String(cachedRpcOpenPort),
+    download: downloadUrl,
+  });
+  return `${RPC_BRIDGE_URL}?${params.toString()}`;
 }
 
 function navigateToTrack(urn: string) {
@@ -130,9 +138,7 @@ async function updatePresence(track: Track) {
         title: track.title,
         artist: track.user.username,
         artwork_url: artworkToLarge(track.artwork_url),
-        track_url: track.permalink_url
-          ? `${track.permalink_url}`.replace(/\?.*$/, '')
-          : undefined,
+        track_url: track.permalink_url ? `${track.permalink_url}`.replace(/\?.*$/, '') : undefined,
         duration_secs: Math.round(track.duration / 1000),
         elapsed_secs: Math.round(getCurrentTime()),
         is_playing: isPlaying,
