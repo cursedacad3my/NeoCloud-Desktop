@@ -115,7 +115,7 @@ function requestDiscordUpdate(track?: Track) {
 }
 
 function schedulePresenceSync(track: Track, delayMs: number) {
-  if (seekSyncTimer) clearTimeout(seekSyncTimer);
+  if (seekSyncTimer) return;
   seekSyncTimer = setTimeout(() => {
     seekSyncTimer = null;
     lastElapsed = Math.round(getCurrentTime());
@@ -287,13 +287,21 @@ subscribeAudioTime(() => {
     return;
   }
 
-  if (!isPlaying) return;
-
   const elapsed = Math.round(getCurrentTime());
+  const seekedBack = elapsed + 1 < lastElapsed;
   const drift = Math.abs(elapsed - lastElapsed);
+
   if (drift >= 2) {
-    schedulePresenceSync(currentTrack, 180);
-  } else {
+    lastElapsed = elapsed;
+    if (seekedBack) {
+      requestDiscordUpdate(currentTrack);
+      return;
+    }
+    schedulePresenceSync(currentTrack, 160);
+    return;
+  }
+
+  if (isPlaying) {
     lastElapsed = elapsed;
   }
 });
