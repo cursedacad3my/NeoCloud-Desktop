@@ -43,7 +43,7 @@ import {
 } from '../lib/icons';
 import { optimisticToggleLike, setLikedUrn, useLiked } from '../lib/likes';
 import { useTrackPlay } from '../lib/useTrackPlay';
-import { useLyricsStore } from '../stores/lyrics';
+import { useArtworkStore, useLyricsStore } from '../stores/lyrics';
 import { type Track, usePlayerStore } from '../stores/player';
 
 function parseTags(tagList?: string): string[] {
@@ -333,6 +333,7 @@ export const TrackPage = React.memo(() => {
   const navigate = useNavigate();
   const [descExpanded, setDescExpanded] = useState(false);
   const openLyrics = useLyricsStore((s) => s.openPanel);
+  const setArtworkOpen = useArtworkStore((s) => s.setOpen);
 
   const { data: track, isLoading } = useQuery({
     queryKey: ['track', urn],
@@ -393,6 +394,10 @@ export const TrackPage = React.memo(() => {
     else play(track, relatedTracks.length > 0 ? [track, ...relatedTracks] : undefined);
   };
 
+  const handleOpenArtwork = () => {
+    setArtworkOpen(true);
+  };
+
   return (
     <div className="p-6 pb-4 space-y-7">
       {/* ── Hero ─────────────────────────────────────── */}
@@ -413,7 +418,7 @@ export const TrackPage = React.memo(() => {
           {/* Artwork */}
           <div
             className="relative w-[220px] h-[220px] rounded-2xl overflow-hidden shrink-0 shadow-2xl ring-1 ring-white/[0.1] cursor-pointer group/cover"
-            onClick={handlePlay}
+            onClick={handleOpenArtwork}
           >
             {cover ? (
               <img
@@ -433,7 +438,12 @@ export const TrackPage = React.memo(() => {
                   : 'bg-black/0 opacity-0 group-hover/cover:bg-black/30 group-hover/cover:opacity-100'
               }`}
             >
-              <div
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePlay();
+                }}
                 className={`w-14 h-14 rounded-full flex items-center justify-center shadow-xl transition-all duration-300 ease-[var(--ease-apple)] ${
                   isThisPlaying
                     ? 'bg-white scale-100'
@@ -441,7 +451,7 @@ export const TrackPage = React.memo(() => {
                 }`}
               >
                 {isThisPlaying ? pauseBlack22 : playBlack22}
-              </div>
+              </button>
             </div>
           </div>
 

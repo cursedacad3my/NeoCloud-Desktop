@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 import { api, getSessionId } from '../../lib/api';
-import { API_BASE } from '../../lib/constants';
+import { getApiBase } from '../../lib/constants';
 import { X } from '../../lib/icons';
 
 interface YmProgress {
@@ -112,7 +112,7 @@ function YMImportDialog({
     try {
       const urns: string[] = await invoke('ym_import_start', {
         ymToken: token.trim(),
-        backendUrl: API_BASE,
+        backendUrl: getApiBase(),
         sessionId: getSessionId() || '',
       });
       setDone(true);

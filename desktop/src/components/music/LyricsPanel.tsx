@@ -199,19 +199,41 @@ const FullscreenVisualizer = React.memo(() => {
 /* ── Shared: like button (for fullscreen panels) ──────────── */
 
 const FullscreenLikeButton = React.memo(({ track }: { track: Track }) => {
-  const liked = useLiked(track.urn);
+  const likedFromStore = useLiked(track.urn);
   const qc = useQueryClient();
+  const { data: trackData } = useQuery({
+    queryKey: ['track', track.urn],
+    queryFn: () => api<Track>(`/tracks/${encodeURIComponent(track.urn)}`),
+    enabled: !!track.urn,
+    staleTime: 30_000,
+  });
+  const [likedOverride, setLikedOverride] = useState<boolean | null>(null);
+  const prevUrnRef = useRef(track.urn);
+
+  if (prevUrnRef.current !== track.urn) {
+    prevUrnRef.current = track.urn;
+    setLikedOverride(null);
+  }
+
+  const isLiked =
+    likedOverride ??
+    (trackData
+      ? Boolean(trackData.user_favorite)
+      : likedFromStore || Boolean(track.user_favorite));
 
   const toggle = async () => {
-    const next = !liked;
-    optimisticToggleLike(qc, track, next);
+    const next = !isLiked;
+    setLikedOverride(next);
+    optimisticToggleLike(qc, trackData ?? track, next);
     invalidateAllLikesCache();
     try {
       await api(`/likes/tracks/${encodeURIComponent(track.urn)}`, {
         method: next ? 'POST' : 'DELETE',
       });
+      qc.invalidateQueries({ queryKey: ['track', track.urn, 'favoriters'] });
     } catch {
-      optimisticToggleLike(qc, track, !next);
+      setLikedOverride(!next);
+      optimisticToggleLike(qc, trackData ?? track, !next);
     }
   };
 
@@ -220,10 +242,10 @@ const FullscreenLikeButton = React.memo(({ track }: { track: Track }) => {
       type="button"
       onClick={toggle}
       className={`w-11 h-11 rounded-full flex items-center justify-center transition-all duration-200 cursor-pointer hover:bg-white/[0.06] outline-none ${
-        liked ? 'text-accent' : 'text-white/30 hover:text-white/60'
+        isLiked ? 'text-accent' : 'text-white/30 hover:text-white/60'
       }`}
     >
-      <Heart size={20} fill={liked ? 'currentColor' : 'none'} />
+      <Heart size={20} fill={isLiked ? 'currentColor' : 'none'} />
     </button>
   );
 });
@@ -286,15 +308,15 @@ const FullscreenVolumeSlider = React.memo(() => {
         >
           <Slider.Track className="relative h-[3px] grow rounded-full bg-white/[0.08] group-hover/vol:h-[4px] transition-all duration-150">
             <Slider.Range
-              className={`absolute h-full rounded-full ${volume > 100 ? 'bg-amber-400/80' : 'bg-white/40'}`}
+              className={`absolute h-full rounded-full ${volume > 100 ? 'bg-accent' : 'bg-white/40'}`}
             />
           </Slider.Track>
           <Slider.Thumb
-            className={`block w-2.5 h-2.5 rounded-full transition-all duration-150 outline-none scale-0 opacity-0 group-hover/vol:scale-100 group-hover/vol:opacity-100 ${volume > 100 ? 'bg-amber-400' : 'bg-white'}`}
+            className={`block w-2.5 h-2.5 rounded-full transition-all duration-150 outline-none scale-0 opacity-0 group-hover/vol:scale-100 group-hover/vol:opacity-100 ${volume > 100 ? 'bg-accent shadow-[0_0_10px_var(--color-accent-glow)]' : 'bg-white'}`}
           />
         </Slider.Root>
       </div>
-      <span className="text-[10px] text-white/20 tabular-nums w-8 text-right font-medium">
+      <span className={`text-[10px] tabular-nums w-8 text-right font-medium ${volume > 100 ? 'text-accent/90' : 'text-white/20'}`}>
         {volume}%
       </span>
     </div>
@@ -509,6 +531,7 @@ const SyncedLyrics = React.memo(({ lines }: { lines: LyricLine[] }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef(-1);
   const lastScrollTsRef = useRef(0);
+  const manualScrollDetachedRef = useRef(false);
   const linesRef = useRef(lines);
   const lineElsRef = useRef<HTMLElement[]>([]);
   linesRef.current = lines;
@@ -534,10 +557,20 @@ const SyncedLyrics = React.memo(({ lines }: { lines: LyricLine[] }) => {
   // biome-ignore lint/correctness/useExhaustiveDependencies: lines triggers DOM re-cache
   useEffect(() => {
     const container = containerRef.current;
-    if (container) {
-      lineElsRef.current = Array.from(container.querySelectorAll<HTMLElement>('.lyric-line'));
-    }
+    if (!container) return;
+
+    lineElsRef.current = Array.from(container.querySelectorAll<HTMLElement>('.lyric-line'));
+
+    const markManualScroll = () => {
+      manualScrollDetachedRef.current = true;
+    };
+
+    container.addEventListener('wheel', markManualScroll, { passive: true });
+    container.addEventListener('touchstart', markManualScroll, { passive: true });
+    container.addEventListener('pointerdown', markManualScroll);
+
     activeRef.current = -1;
+    manualScrollDetachedRef.current = false;
 
     const timerId = setInterval(() => {
       const lineEls = lineElsRef.current;
@@ -552,35 +585,44 @@ const SyncedLyrics = React.memo(({ lines }: { lines: LyricLine[] }) => {
       const prev = activeRef.current;
       activeRef.current = idx;
 
-      if (prev >= 0 && prev < lineEls.length) {
-        lineEls[prev].dataset.state = prev < idx ? 'past' : '';
-      }
-
       if (idx >= 0 && idx < lineEls.length) {
         lineEls[idx].dataset.state = 'active';
         const el = lineEls[idx];
         const top = el.offsetTop - container.clientHeight / 2 + el.clientHeight / 2;
         const now = performance.now();
-        if (now - lastScrollTsRef.current < 220 || prev === -1 || Math.abs(idx - prev) > 2) {
-          container.scrollTo({ top, behavior: 'auto' });
-        } else {
-          container.scrollTo({ top, behavior: 'smooth' });
+        if (!manualScrollDetachedRef.current) {
+          if (now - lastScrollTsRef.current < 220 || prev === -1 || Math.abs(idx - prev) > 2) {
+            container.scrollTo({ top, behavior: 'auto' });
+          } else {
+            container.scrollTo({ top, behavior: 'smooth' });
+          }
+          lastScrollTsRef.current = now;
         }
-        lastScrollTsRef.current = now;
       }
 
-      if (prev !== -1 && idx !== -1) {
-        const lo = Math.min(prev, idx);
-        const hi = Math.max(prev, idx);
-        for (let i = lo; i <= hi; i++) {
-          if (i === idx || i === prev) continue;
-          const state = i < idx ? 'past' : '';
-          if (lineEls[i].dataset.state !== state) lineEls[i].dataset.state = state;
+      if (idx !== -1) {
+        const from = Math.max(0, Math.min(prev === -1 ? idx : prev, idx) - 3);
+        const to = Math.min(lineEls.length - 1, Math.max(prev === -1 ? idx : prev, idx) + 3);
+
+        for (let i = from; i <= to; i++) {
+          let state = '';
+          if (i === idx) state = 'active';
+          else if (i < idx) state = idx - i === 1 ? 'past-near' : 'past';
+          else if (i > idx) state = i - idx === 1 ? 'next-near' : 'next';
+
+          if (lineEls[i].dataset.state !== state) {
+            lineEls[i].dataset.state = state;
+          }
         }
       }
     }, 160);
 
-    return () => clearInterval(timerId);
+    return () => {
+      clearInterval(timerId);
+      container.removeEventListener('wheel', markManualScroll);
+      container.removeEventListener('touchstart', markManualScroll);
+      container.removeEventListener('pointerdown', markManualScroll);
+    };
   }, [lines]);
 
   return (
@@ -589,9 +631,12 @@ const SyncedLyrics = React.memo(({ lines }: { lines: LyricLine[] }) => {
         {lines.map((line, i) => (
           <div
             key={`${line.time}-${i}`}
-            className="lyric-line cursor-pointer origin-left transition-all duration-500 ease-[var(--ease-apple)] will-change-transform py-2.5 data-[state=active]:text-white data-[state=active]:scale-[1.03] data-[state=active]:opacity-100 data-[state=past]:text-white/20 data-[state=past]:scale-[0.97] text-[28px] font-bold tracking-tight text-white/40 scale-[0.97] pr-12 hover:text-white/60 antialiased"
+            className="lyric-line cursor-pointer origin-left transition-all duration-500 ease-[var(--ease-apple)] will-change-transform py-2.5 text-[28px] font-bold tracking-tight pr-12 antialiased text-white/20 opacity-45 scale-[0.965] blur-[1.5px] translate-x-0 data-[state=active]:text-white data-[state=active]:opacity-100 data-[state=active]:scale-[1.045] data-[state=active]:blur-0 data-[state=active]:translate-x-0 data-[state=past-near]:text-white/62 data-[state=past-near]:opacity-80 data-[state=past-near]:scale-[0.992] data-[state=past-near]:blur-0 data-[state=past-near]:-translate-x-1.5 data-[state=past]:text-white/18 data-[state=past]:opacity-40 data-[state=past]:scale-[0.972] data-[state=past]:blur-[1.5px] data-[state=past]:-translate-x-3 data-[state=next-near]:text-white/54 data-[state=next-near]:opacity-72 data-[state=next-near]:scale-[0.985] data-[state=next-near]:blur-[0.6px] data-[state=next-near]:translate-x-2 data-[state=next]:text-white/16 data-[state=next]:opacity-30 data-[state=next]:scale-[0.965] data-[state=next]:blur-[1.8px] data-[state=next]:translate-x-4 hover:text-white/60 hover:opacity-90 hover:blur-0"
             style={{ textRendering: 'optimizeLegibility' }}
-            onClick={() => seek(line.time)}
+            onClick={() => {
+              manualScrollDetachedRef.current = false;
+              seek(line.time);
+            }}
           >
             {line.text}
           </div>
@@ -718,7 +763,7 @@ export const LyricsPanel = React.memo(() => {
                   onClick={() => setIsEditing(false)}
                   className="px-5 py-2 rounded-full text-[13px] font-medium text-white/50 hover:text-white hover:bg-white/10 transition-colors"
                 >
-                  {t('eq.off', 'Cancel')}
+                  {t('common.back')}
                 </button>
                 <button
                   type="button"
@@ -801,8 +846,10 @@ export const LyricsPanel = React.memo(() => {
 /* ── Artwork Fullscreen Panel ─────────────────────────────── */
 
 export const ArtworkPanel = React.memo(() => {
+  const { t } = useTranslation();
   const open = useArtworkStore((s) => s.open);
   const setOpen = useArtworkStore((s) => s.setOpen);
+  const openLyrics = useLyricsStore((s) => s.openPanel);
   const track = usePlayerStore((s) => s.currentTrack);
   const colorRef = useArtworkColor(track?.artwork_url ?? null);
 
@@ -839,7 +886,18 @@ export const ArtworkPanel = React.memo(() => {
       </div>
 
       {/* Close */}
-      <div className="relative z-10 flex justify-end px-6 pt-5 pb-2" data-tauri-drag-region>
+      <div className="relative z-10 flex justify-end items-center gap-2 px-6 pt-5 pb-2" data-tauri-drag-region>
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false);
+            openLyrics();
+          }}
+          className="h-9 rounded-full px-3 inline-flex items-center gap-1.5 text-[12px] font-semibold text-white/45 hover:text-white/80 hover:bg-white/[0.08] transition-all duration-200 cursor-pointer outline-none"
+        >
+          <MicVocal size={14} />
+          <span>{t('track.lyrics')}</span>
+        </button>
         <button
           type="button"
           onClick={() => setOpen(false)}

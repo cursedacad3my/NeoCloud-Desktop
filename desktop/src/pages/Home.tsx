@@ -462,7 +462,7 @@ const LikedShelf = React.memo(function LikedShelf({
         ) : (
           displayTracks.map((track) => (
             <div key={track.urn} className="w-[180px] shrink-0">
-              <TrackCard track={track} queue={displayTracks} />
+              <TrackCard track={track} queue={likedTracks} />
             </div>
           ))
         )}

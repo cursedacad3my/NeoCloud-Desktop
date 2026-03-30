@@ -153,6 +153,18 @@ body,
   animation: fadeInUp 0.5s var(--ease-apple) both;
 }
 
+@keyframes soundwavePulse {
+  0%,
+  100% {
+    transform: scaleY(0.45);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
 /* ── Dialog animations (Radix data-state) ────────────────── */
 @keyframes dialogOverlayIn {
   from {

@@ -4,7 +4,7 @@ import { exists, mkdir, readDir, remove, stat, writeFile } from '@tauri-apps/plu
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { useSettingsStore } from '../stores/settings';
 import { getSessionId } from './api';
-import { API_BASE, getStaticPort } from './constants';
+import { buildApiUrl, getStaticPort } from './constants';
 import { isTauriRuntime } from './runtime';
 
 const AUDIO_DIR = 'audio';
@@ -78,6 +78,17 @@ function isValidAudio(buffer: ArrayBuffer): boolean {
 
 const activeDownloads = new Map<string, Promise<ArrayBuffer>>();
 
+export interface CacheBatchProgress {
+  completed: number;
+  total: number;
+}
+
+export interface CacheBatchResult {
+  completed: number;
+  skipped: number;
+  failed: number;
+}
+
 export async function fetchAndCacheTrack(urn: string, signal?: AbortSignal): Promise<ArrayBuffer> {
   if (activeDownloads.has(urn)) {
     console.log(`💾[Cache] Reusing active download for: ${urn}`);
@@ -93,7 +104,9 @@ export async function fetchAndCacheTrack(urn: string, signal?: AbortSignal): Pro
       if (useSettingsStore.getState().highQualityStreaming) {
         params.set('hq', 'true');
       }
-      const url = `${API_BASE}/tracks/${encodeURIComponent(urn)}/stream${params.size ? `?${params.toString()}` : ''}`;
+      const url = buildApiUrl(
+        `/tracks/${encodeURIComponent(urn)}/stream${params.size ? `?${params.toString()}` : ''}`,
+      );
 
       const requestInit: RequestInit = {
         headers: sessionId ? { 'x-session-id': sessionId } : {},
@@ -136,6 +149,53 @@ export async function fetchAndCacheTrack(urn: string, signal?: AbortSignal): Pro
   } finally {
     activeDownloads.delete(urn);
   }
+}
+
+export async function cacheTracksBatch(
+  urns: string[],
+  options: {
+    concurrency?: number;
+    onProgress?: (progress: CacheBatchProgress) => void;
+  } = {},
+): Promise<CacheBatchResult> {
+  const uniqueUrns = [...new Set(urns.filter(Boolean))];
+  const total = uniqueUrns.length;
+  const concurrency = Math.max(1, Math.min(options.concurrency ?? 3, 6));
+
+  if (total === 0) {
+    options.onProgress?.({ completed: 0, total: 0 });
+    return { completed: 0, skipped: 0, failed: 0 };
+  }
+
+  let cursor = 0;
+  let completed = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  const runNext = async () => {
+    for (;;) {
+      const index = cursor++;
+      if (index >= uniqueUrns.length) return;
+
+      const urn = uniqueUrns[index];
+      try {
+        if (await isCached(urn)) {
+          skipped++;
+        } else {
+          await fetchAndCacheTrack(urn);
+          completed++;
+        }
+      } catch {
+        failed++;
+      } finally {
+        options.onProgress?.({ completed: completed + skipped + failed, total });
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, total) }, () => runNext()));
+
+  return { completed, skipped, failed };
 }
 
 export async function getCacheSize(): Promise<number> {

@@ -48,6 +48,7 @@ const PREDEFINED_QDRANT_COLLECTION = decodeBase64(ENCODED_QDRANT_COLLECTION);
 export type ThemePreset = 'soundcloud' | 'dark' | 'neon' | 'forest' | 'crimson' | 'custom';
 export type DiscordRpcMode = 'text' | 'track' | 'artist' | 'activity';
 export type DiscordRpcButtonMode = 'soundcloud' | 'app' | 'both';
+export type ApiMode = 'auto' | 'custom';
 
 export interface ThemePresetDef {
   accent: string;
@@ -106,6 +107,8 @@ export interface SettingsState {
   spotifyClientId: string;
   youtubeClientId: string;
   youtubeClientSecret: string;
+  apiMode: ApiMode;
+  customApiBase: string;
   sidebarCollapsed: boolean;
   crossfadeEnabled: boolean;
   crossfadeDuration: number;
@@ -137,6 +140,7 @@ export interface SettingsState {
   visualizerMirror: boolean;
   visualizerFade: number;
   visualizerBars: number;
+  lowPerformanceMode: boolean;
   targetFramerate: number;
   unlockFramerate: boolean;
   showFpsCounter: boolean;
@@ -147,6 +151,8 @@ export interface SettingsState {
   preferredLanguage: string;
   soundwaveGenreStrict: boolean;
   soundwaveSelectedGenres: string[];
+  soundwaveHideLiked: boolean;
+  soundwaveTrackVisual: boolean;
   setAccentColor: (color: string) => void;
   setBgPrimary: (bg: string) => void;
   setThemePreset: (id: ThemePreset) => void;
@@ -163,6 +169,8 @@ export interface SettingsState {
   setSpotifyClientId: (id: string) => void;
   setYoutubeClientId: (id: string) => void;
   setYoutubeClientSecret: (secret: string) => void;
+  setApiMode: (mode: ApiMode) => void;
+  setCustomApiBase: (url: string) => void;
   setCrossfadeEnabled: (v: boolean) => void;
   setCrossfadeDuration: (v: number) => void;
   toggleSidebar: () => void;
@@ -194,6 +202,7 @@ export interface SettingsState {
   setVisualizerMirror: (v: boolean) => void;
   setVisualizerFade: (v: number) => void;
   setVisualizerBars: (v: number) => void;
+  setLowPerformanceMode: (v: boolean) => void;
   setTargetFramerate: (fps: number) => void;
   setUnlockFramerate: (unlocked: boolean) => void;
   setShowFpsCounter: (show: boolean) => void;
@@ -204,6 +213,8 @@ export interface SettingsState {
   setPreferredLanguage: (lang: string) => void;
   setSoundwaveGenreStrict: (v: boolean) => void;
   setSoundwaveSelectedGenres: (genres: string[]) => void;
+  setSoundwaveHideLiked: (v: boolean) => void;
+  setSoundwaveTrackVisual: (v: boolean) => void;
   resetTheme: () => void;
 }
 
@@ -247,6 +258,8 @@ const DEFAULTS = {
   spotifyClientId: '',
   youtubeClientId: '',
   youtubeClientSecret: '',
+  apiMode: 'auto' as ApiMode,
+  customApiBase: '',
   crossfadeEnabled: false,
   crossfadeDuration: 6,
   sidebarCollapsed: false,
@@ -278,6 +291,7 @@ const DEFAULTS = {
   visualizerMirror: false,
   visualizerFade: 0,
   visualizerBars: 56,
+  lowPerformanceMode: false,
   targetFramerate: 60,
   unlockFramerate: false,
   showFpsCounter: false,
@@ -288,6 +302,8 @@ const DEFAULTS = {
   preferredLanguage: 'all',
   soundwaveGenreStrict: true,
   soundwaveSelectedGenres: [],
+  soundwaveHideLiked: false,
+  soundwaveTrackVisual: true,
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -333,6 +349,8 @@ export const useSettingsStore = create<SettingsState>()(
       setSpotifyClientId: (spotifyClientId) => set({ spotifyClientId }),
       setYoutubeClientId: (youtubeClientId) => set({ youtubeClientId }),
       setYoutubeClientSecret: (youtubeClientSecret) => set({ youtubeClientSecret }),
+      setApiMode: (apiMode) => set({ apiMode }),
+      setCustomApiBase: (customApiBase) => set({ customApiBase }),
       setCrossfadeEnabled: (crossfadeEnabled) => set({ crossfadeEnabled }),
       setCrossfadeDuration: (crossfadeDuration) => set({ crossfadeDuration }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
@@ -364,6 +382,26 @@ export const useSettingsStore = create<SettingsState>()(
       setVisualizerMirror: (visualizerMirror) => set({ visualizerMirror }),
       setVisualizerFade: (visualizerFade) => set({ visualizerFade }),
       setVisualizerBars: (visualizerBars) => set({ visualizerBars }),
+      setLowPerformanceMode: (lowPerformanceMode) => {
+        set((state) => ({
+          lowPerformanceMode,
+          ...(lowPerformanceMode
+            ? {
+                floatingComments: false,
+                visualizerStyle: 'Off' as const,
+                visualizerFullscreen: false,
+                visualizerPlaybar: false,
+                targetFramerate: Math.min(state.targetFramerate, 30),
+                unlockFramerate: false,
+                showFpsCounter: false,
+              }
+            : {}),
+        }));
+
+        if (lowPerformanceMode) {
+          invoke('save_framerate_config', { target: Math.min(get().targetFramerate, 30), unlocked: false }).catch(console.error);
+        }
+      },
       setTargetFramerate: (targetFramerate) => {
         set({ targetFramerate });
         invoke('save_framerate_config', { target: targetFramerate, unlocked: get().unlockFramerate }).catch(console.error);
@@ -380,6 +418,8 @@ export const useSettingsStore = create<SettingsState>()(
       setPreferredLanguage: (preferredLanguage) => set({ preferredLanguage }),
       setSoundwaveGenreStrict: (soundwaveGenreStrict) => set({ soundwaveGenreStrict }),
       setSoundwaveSelectedGenres: (soundwaveSelectedGenres) => set({ soundwaveSelectedGenres }),
+      setSoundwaveHideLiked: (soundwaveHideLiked) => set({ soundwaveHideLiked }),
+      setSoundwaveTrackVisual: (soundwaveTrackVisual) => set({ soundwaveTrackVisual }),
       resetTheme: () => set(DEFAULTS),
     }),
     {
@@ -430,6 +470,8 @@ export const useSettingsStore = create<SettingsState>()(
         spotifyClientId: s.spotifyClientId,
         youtubeClientId: s.youtubeClientId,
         youtubeClientSecret: s.youtubeClientSecret,
+        apiMode: s.apiMode,
+        customApiBase: s.customApiBase,
         sidebarCollapsed: s.sidebarCollapsed,
         crossfadeEnabled: s.crossfadeEnabled,
         crossfadeDuration: s.crossfadeDuration,
@@ -468,10 +510,13 @@ export const useSettingsStore = create<SettingsState>()(
         visualizerMirror: s.visualizerMirror,
         visualizerFade: s.visualizerFade,
         visualizerBars: s.visualizerBars,
+        lowPerformanceMode: s.lowPerformanceMode,
         languageFilterEnabled: s.languageFilterEnabled,
         preferredLanguage: s.preferredLanguage,
         soundwaveGenreStrict: s.soundwaveGenreStrict,
         soundwaveSelectedGenres: s.soundwaveSelectedGenres,
+        soundwaveHideLiked: s.soundwaveHideLiked,
+        soundwaveTrackVisual: s.soundwaveTrackVisual,
       }),
     },
   ),

@@ -161,6 +161,7 @@ function renderPill(container: HTMLDivElement, pill: Pill, mode: FloatingComment
     body.style.webkitLineClamp = '2';
     body.style.webkitBoxOrient = 'vertical';
     body.style.overflow = 'hidden';
+    body.style.wordBreak = 'break-word';
     body.textContent = comment.body;
 
     textCol.appendChild(username);
@@ -180,6 +181,16 @@ function renderPill(container: HTMLDivElement, pill: Pill, mode: FloatingComment
     el.appendChild(textCol);
     container.appendChild(el);
 
+    let expanded = false;
+    el.style.cursor = 'pointer';
+    el.addEventListener('click', () => {
+      expanded = !expanded;
+      textCol.style.overflow = expanded ? 'visible' : 'hidden';
+      body.style.display = expanded ? 'block' : '-webkit-box';
+      body.style.webkitLineClamp = expanded ? 'unset' : '2';
+      body.style.overflow = expanded ? 'visible' : 'hidden';
+    });
+
     // Animate in
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -192,10 +203,10 @@ function renderPill(container: HTMLDivElement, pill: Pill, mode: FloatingComment
     el.className = 'timed-comment flex items-center gap-2.5 bg-white/[0.08] backdrop-blur-xl border border-white/[0.08] shadow-[0_10px_40px_rgba(0,0,0,0.5)] pointer-events-auto transition-all duration-[400ms] cubic-bezier(0.16, 1, 0.3, 1) overflow-hidden whitespace-nowrap';
     
     el.style.opacity = '0';
-    el.style.transform = 'scale(0.35)';
-    el.style.borderRadius = '50%';
-    el.style.maxWidth = '44px';
-    el.style.padding = '8px';
+    el.style.transform = 'translateY(14px)';
+    el.style.borderRadius = '20px';
+    el.style.maxWidth = '420px';
+    el.style.padding = '8px 16px 8px 8px';
 
     const avatar = document.createElement('img');
     avatar.src = art(comment.user.avatar_url, 'small') || '';
@@ -203,11 +214,12 @@ function renderPill(container: HTMLDivElement, pill: Pill, mode: FloatingComment
     avatar.alt = '';
 
     const bodyWrap = document.createElement('div');
-    bodyWrap.className = 'flex items-center gap-2 overflow-hidden opacity-0 transition-opacity duration-300 delay-250';
+    bodyWrap.className = 'flex items-center gap-2 overflow-hidden opacity-0 transition-opacity duration-200';
     bodyWrap.style.maxWidth = '380px';
 
     const body = document.createElement('span');
     body.className = 'text-[13px] text-white/90 font-semibold leading-snug truncate';
+    body.style.wordBreak = 'break-word';
     body.textContent = comment.body;
 
     bodyWrap.appendChild(body);
@@ -226,13 +238,23 @@ function renderPill(container: HTMLDivElement, pill: Pill, mode: FloatingComment
     el.appendChild(bodyWrap);
     container.appendChild(el);
 
+    let expanded = false;
+    el.style.cursor = 'pointer';
+    el.addEventListener('click', () => {
+      expanded = !expanded;
+      el.style.whiteSpace = expanded ? 'normal' : 'nowrap';
+      el.style.maxWidth = expanded ? 'min(84vw, 760px)' : '420px';
+      bodyWrap.style.maxWidth = expanded ? 'none' : '380px';
+      body.classList.toggle('truncate', !expanded);
+      body.style.whiteSpace = expanded ? 'normal' : 'nowrap';
+      body.style.overflow = expanded ? 'visible' : 'hidden';
+      body.style.textOverflow = expanded ? 'clip' : 'ellipsis';
+    });
+
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         el.style.opacity = '1';
-        el.style.transform = 'scale(1)';
-        el.style.borderRadius = '20px';
-        el.style.maxWidth = '420px';
-        el.style.padding = '8px 16px 8px 8px';
+        el.style.transform = 'translateY(0)';
         bodyWrap.style.opacity = '1';
       });
     });
@@ -252,10 +274,7 @@ function removePill(container: HTMLDivElement, pillId: number, mode: FloatingCom
     el.style.borderWidth = '0';
   } else {
     el.style.opacity = '0';
-    el.style.transform = 'scale(0.4)';
-    el.style.borderRadius = '50%';
-    el.style.maxWidth = '44px';
-    el.style.padding = '8px';
+    el.style.transform = 'translateY(10px)';
     
     const bodyWrap = el.querySelector('div');
     if (bodyWrap) bodyWrap.style.opacity = '0';

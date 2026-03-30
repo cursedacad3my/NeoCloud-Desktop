@@ -306,11 +306,11 @@ const VolumeSlider = React.memo(({ className = '' }: { className?: string }) => 
       >
         <Slider.Track className="relative h-[3px] grow rounded-full bg-white/[0.08] group-hover:h-[4px] transition-all duration-150">
           <Slider.Range
-            className={`absolute h-full rounded-full ${isOver100 ? 'bg-amber-400/80' : 'bg-white/60'}`}
+            className={`absolute h-full rounded-full ${isOver100 ? 'bg-accent' : 'bg-white/60'}`}
           />
         </Slider.Track>
         <Slider.Thumb
-          className={`block w-2.5 h-2.5 rounded-full transition-all duration-150 outline-none scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100 ${isOver100 ? 'bg-amber-400' : 'bg-white'}`}
+          className={`block w-2.5 h-2.5 rounded-full transition-all duration-150 outline-none scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100 ${isOver100 ? 'bg-accent shadow-[0_0_10px_var(--color-accent-glow)]' : 'bg-white'}`}
         />
       </Slider.Root>
       {/* 100% tick mark (visual only, outside Slider tree) */}
@@ -348,7 +348,7 @@ const VolumeLabel = React.memo(() => {
   const volume = usePlayerStore((s) => s.volume);
   return (
     <span
-      className={`text-[10px] tabular-nums w-[34px] text-right shrink-0 ${volume > 100 ? 'text-amber-400/70' : 'text-white/30'}`}
+      className={`text-[10px] tabular-nums w-[34px] text-right shrink-0 ${volume > 100 ? 'text-accent/90' : 'text-white/30'}`}
     >
       {volume}%
     </span>

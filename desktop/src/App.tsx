@@ -5,7 +5,7 @@ import { useShallow } from 'zustand/shallow';
 import { AppShell } from './components/layout/AppShell';
 import { ThemeProvider } from './components/ThemeProvider';
 import { UpdateChecker } from './components/UpdateChecker';
-import { ApiError } from './lib/api';
+import { ApiError, setSessionExpiredHandler } from './lib/api';
 import { Home } from './pages/Home';
 import { Library } from './pages/Library';
 import { Login } from './pages/Login';
@@ -57,6 +57,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    setSessionExpiredHandler(() => {
+      useAppStatusStore.getState().resetConnectivity();
+      logout();
+    });
+
+    return () => {
+      setSessionExpiredHandler(null);
+    };
+  }, [logout]);
+
+  useEffect(() => {
     if (appMode !== 'online') {
       setChecking(false);
       return;
@@ -67,7 +78,7 @@ export default function App() {
       fetchUser()
         .catch((error) => {
           if (error instanceof ApiError && error.status === 401) {
-            logout();
+            useAppStatusStore.getState().setBackendReachable(false);
             return;
           }
 

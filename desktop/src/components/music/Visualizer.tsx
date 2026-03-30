@@ -122,7 +122,8 @@ export const Visualizer: React.FC<VisualizerProps> = ({ className = '', style })
         bars: numBars,
         rgb: { r, g, b },
       } = cfgRef.current;
-      const lerp = smoothing / 100;
+      // Higher smoothing value should produce smoother (slower) bar motion.
+      const lerp = Math.max(0.04, (100 - smoothing) / 100);
 
       // Resample 64 → numBars with lerp smoothing
       // Apply power-curve to tame bass dominance (lower bins are much louder raw)

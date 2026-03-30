@@ -2,9 +2,10 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 import { api, getSessionId } from '../../lib/api';
-import { API_BASE } from '../../lib/constants';
+import { getApiBase } from '../../lib/constants';
 import { Loader2, X } from '../../lib/icons';
 import { useSettingsStore } from '../../stores/settings';
 
@@ -34,6 +35,7 @@ export function YTMusicImportDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const clientId = useSettingsStore((s) => s.youtubeClientId);
   const setClientId = useSettingsStore((s) => s.setYoutubeClientId);
@@ -67,11 +69,11 @@ export function YTMusicImportDialog({
 
   const handleSignIn = useCallback(async () => {
     if (!clientId.trim()) {
-      setError('Please enter your Google OAuth Client ID first.');
+      setError(t('importExternal.googleClientIdRequired'));
       return;
     }
     if (!clientSecret.trim()) {
-      setError('Please enter your Google OAuth Client Secret first.');
+      setError(t('importExternal.googleClientSecretRequired'));
       return;
     }
     setError(null);
@@ -82,7 +84,7 @@ export function YTMusicImportDialog({
       setError(String(e));
       setSigningIn(false);
     }
-  }, [clientId, clientSecret]);
+  }, [clientId, clientSecret, t]);
 
   const handleLogout = useCallback(() => {
     invoke('ytmusic_logout').catch(console.error);
@@ -126,7 +128,7 @@ export function YTMusicImportDialog({
     setError(null);
     try {
       const urns: string[] = await invoke('ytmusic_import_start', {
-        backendUrl: API_BASE,
+        backendUrl: getApiBase(),
         sessionId: getSessionId() || '',
       });
       setDone(true);
@@ -155,7 +157,7 @@ export function YTMusicImportDialog({
           {/* Header */}
           <div className="px-7 pt-6 pb-4 border-b border-white/[0.06] flex items-center justify-between">
             <Dialog.Title className="text-[18px] font-bold text-white/90 tracking-tight flex items-center gap-2">
-              <span style={{ color: '#ff0000' }}>▶</span> Import from YouTube Music
+              <span style={{ color: '#ff0000' }}>▶</span> {t('importExternal.youtubeTitle')}
             </Dialog.Title>
             <Dialog.Close asChild>
               <button className="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white/60 hover:bg-white/[0.08] transition-all cursor-pointer">
@@ -181,42 +183,46 @@ export function YTMusicImportDialog({
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-[15px] font-bold text-white/90 truncate">{playlist.title}</p>
-                    <p className="text-[12px] text-white/40 mt-0.5">{progress?.found || 0} tracks imported</p>
-                    <p className="text-[11px] text-red-400 mt-1">✓ Done!</p>
+                    <p className="text-[12px] text-white/40 mt-0.5">
+                      {t('importExternal.tracksImported', { count: progress?.found || 0 })}
+                    </p>
+                    <p className="text-[11px] text-red-400 mt-1">✓ {t('importExternal.done')}</p>
                   </div>
                   <button
                     onClick={() => { onOpenChange(false); navigate(`/playlist/${encodeURIComponent(playlist.urn)}`); }}
                     className="px-4 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-[13px] font-semibold text-red-400 border border-red-500/20 transition-all cursor-pointer shrink-0"
                   >
-                    Open
+                    {t('importExternal.open')}
                   </button>
                 </div>
               </div>
             ) : !authed ? (
               <div className="space-y-3">
-                <p className="text-[13px] font-semibold text-white/70">Google OAuth Credentials</p>
+                <p className="text-[13px] font-semibold text-white/70">
+                  {t('importExternal.youtubeCredsLabel')}
+                </p>
                 <p className="text-[12px] text-white/40">
-                  1. Go to{' '}
+                  {t('importExternal.youtubeCredsHint1Before')}{' '}
                   <span className="text-red-400">console.cloud.google.com</span>
-                  {' '}→ Create Project → Enable{' '}
+                  {' '}{t('importExternal.youtubeCredsHint1After')}{' '}
                   <span className="text-white/60">YouTube Data API v3</span>
                   <br />
-                  2. Credentials → Create OAuth 2.0 Client ID (type: <strong className="text-white/60">Desktop app</strong>)
+                  {t('importExternal.youtubeCredsHint2Before')} <strong className="text-white/60">{t('importExternal.desktopAppType')}</strong>{t('importExternal.youtubeCredsHint2After')}
                   <br />
-                  3. Paste both Client ID and Client Secret below
+                  {t('importExternal.youtubeCredsHint3')}
                 </p>
                 <input
                   type="text"
                   value={clientId}
                   onChange={(e) => setClientId(e.target.value)}
-                  placeholder="Client ID (ends with .apps.googleusercontent.com)…"
+                  placeholder={t('importExternal.youtubeClientIdPlaceholder')}
                   className="w-full px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.06] text-[13px] text-white/80 placeholder:text-white/20 focus:border-white/[0.12] focus:bg-white/[0.06] transition-all outline-none"
                 />
                 <input
                   type="password"
                   value={clientSecret}
                   onChange={(e) => setClientSecret(e.target.value)}
-                  placeholder="Client Secret…"
+                  placeholder={t('importExternal.youtubeClientSecretPlaceholder')}
                   className="w-full px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.06] text-[13px] text-white/80 placeholder:text-white/20 focus:border-white/[0.12] focus:bg-white/[0.06] transition-all outline-none"
                 />
               </div>
@@ -224,14 +230,16 @@ export function YTMusicImportDialog({
               <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20">
                 <span className="text-xl">✔</span>
                 <div>
-                  <p className="text-[13px] font-semibold text-red-400">Signed into YouTube Music</p>
-                  <p className="text-[11px] text-white/40">Ready to import liked songs</p>
+                  <p className="text-[13px] font-semibold text-red-400">
+                    {t('importExternal.youtubeSignedIn')}
+                  </p>
+                  <p className="text-[11px] text-white/40">{t('importExternal.youtubeReady')}</p>
                 </div>
                 <button
                   onClick={handleLogout}
                   className="ml-auto text-[11px] text-white/30 hover:text-white/60 transition-colors cursor-pointer"
                 >
-                  Sign out
+                  {t('auth.signOut')}
                 </button>
               </div>
             )}
@@ -243,8 +251,12 @@ export function YTMusicImportDialog({
                 </div>
                 <div className="flex items-center justify-between text-[12px] text-white/40">
                   <span>{progress.current} / {progress.total}</span>
-                  <span className="text-green-400">Found: {progress.found}</span>
-                  <span className="text-red-400">Not found: {progress.not_found}</span>
+                  <span className="text-green-400">
+                    {t('importExternal.found', { count: progress.found })}
+                  </span>
+                  <span className="text-red-400">
+                    {t('importExternal.notFound', { count: progress.not_found })}
+                  </span>
                 </div>
                 {progress.current_track && (
                   <p className="text-[12px] text-white/30 truncate">{progress.current_track}</p>
@@ -252,7 +264,7 @@ export function YTMusicImportDialog({
               </div>
             )}
 
-            {saving && <p className="text-[13px] text-white/50 animate-pulse">Saving playlist…</p>}
+            {saving && <p className="text-[13px] text-white/50 animate-pulse">{t('importExternal.savingPlaylist')}</p>}
           </div>
 
           {/* Footer */}
@@ -265,11 +277,11 @@ export function YTMusicImportDialog({
                   className="flex items-center gap-2 px-5 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-[13px] font-semibold text-red-400 border border-red-500/20 transition-all cursor-pointer disabled:opacity-50"
                 >
                   {signingIn && <Loader2 size={14} className="animate-spin" />}
-                  Sign in with Google
+                  {t('importExternal.youtubeSignIn')}
                 </button>
               ) : running ? (
                 <button onClick={handleStop} className="px-5 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-[13px] font-semibold text-red-400 border border-red-500/10 cursor-pointer">
-                  Stop
+                  {t('importExternal.stopImport')}
                 </button>
               ) : (
                 <button
@@ -277,7 +289,7 @@ export function YTMusicImportDialog({
                   disabled={done}
                   className="px-5 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-[13px] font-semibold text-red-400 border border-red-500/20 transition-all cursor-pointer disabled:opacity-30"
                 >
-                  Start Import
+                  {t('importExternal.startImport')}
                 </button>
               )}
             </div>

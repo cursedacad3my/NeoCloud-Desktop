@@ -21,6 +21,7 @@ import type React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import { art } from '../../lib/formatters';
 import { Pause, Play, Settings } from '../../lib/icons';
 import { SUPPORTED_LANGUAGES } from '../../lib/language-detection';
 import { usePlayerStore } from '../../stores/player';
@@ -164,8 +165,12 @@ export const SoundWaveHero: React.FC = () => {
   const setPreferredLanguage = useSettingsStore((s) => s.setPreferredLanguage);
   const soundwaveGenreStrict = useSettingsStore((s) => s.soundwaveGenreStrict);
   const soundwaveSelectedGenres = useSettingsStore((s) => s.soundwaveSelectedGenres);
+  const soundwaveHideLiked = useSettingsStore((s) => s.soundwaveHideLiked);
+  const soundwaveTrackVisual = useSettingsStore((s) => s.soundwaveTrackVisual);
   const setSoundwaveGenreStrict = useSettingsStore((s) => s.setSoundwaveGenreStrict);
   const setSoundwaveSelectedGenres = useSettingsStore((s) => s.setSoundwaveSelectedGenres);
+  const setSoundwaveHideLiked = useSettingsStore((s) => s.setSoundwaveHideLiked);
+  const setSoundwaveTrackVisual = useSettingsStore((s) => s.setSoundwaveTrackVisual);
   const selectedPreset = getPresetByKey(selectedPresetKey);
 
   // Prefetching logic
@@ -537,6 +542,7 @@ export const SoundWaveHero: React.FC = () => {
   };
   const heroSecondaryButtonClass =
     'flex items-center gap-2 px-5 py-2.5 rounded-full bg-white/10 border border-white/10 text-white/70 text-sm font-medium transition-all duration-300 hover:bg-white/20 hover:text-white active:scale-95';
+  const currentTrackArtwork = currentTrack?.artwork_url ? art(currentTrack.artwork_url, 't300x300') : null;
 
   return (
     <div className="relative w-full h-[220px] rounded-3xl overflow-hidden group/sw border border-white/[0.04] shadow-2xl bg-[#0a0a0c]">
@@ -560,6 +566,34 @@ export const SoundWaveHero: React.FC = () => {
 
       {/* Content overlay */}
       <div className="absolute inset-0 flex flex-col items-center justify-center p-6 bg-gradient-to-b from-transparent via-transparent to-black/20">
+        {soundwaveTrackVisual && currentTrack && currentTrackArtwork && (
+          <div className="absolute left-5 top-5 z-10 hidden sm:flex items-center gap-3 rounded-[24px] border border-white/10 bg-black/25 px-3 py-3 backdrop-blur-2xl shadow-[0_18px_40px_rgba(0,0,0,0.28)]">
+            <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl border border-white/10">
+              <img src={currentTrackArtwork} alt="" className="h-full w-full object-cover" />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.16),transparent_58%)]" />
+            </div>
+            <div className="min-w-0 max-w-[180px]">
+              <p className="truncate text-[11px] font-semibold uppercase tracking-[0.18em] text-white/35">
+                {t('settings.soundwaveNowPlaying')}
+              </p>
+              <p className="mt-1 truncate text-[13px] font-semibold text-white/90">{currentTrack.title}</p>
+              <p className="truncate text-[11px] text-white/45">{currentTrack.user.username}</p>
+              <div className="mt-2 flex items-end gap-1.5 h-8">
+                {[0, 1, 2, 3, 4].map((bar) => (
+                  <span
+                    key={bar}
+                    className={`w-1.5 rounded-full bg-white/75 ${isWavePlaying ? 'animate-[soundwavePulse_1.1s_ease-in-out_infinite]' : ''}`}
+                    style={{
+                      height: `${14 + ((bar * 7) % 18)}px`,
+                      animationDelay: `${bar * 0.12}s`,
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         <div
           className={`mb-6 flex flex-col items-center gap-1.5 max-w-[88%] ${
             hasGenreSubtitle ? 'mt-2' : ''
@@ -1108,7 +1142,37 @@ export const SoundWaveHero: React.FC = () => {
 
                 <p className="text-[11px] text-white/35">{t('settings.genreFilterHint')}</p>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-56 overflow-y-auto pr-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-white/55">{t('settings.soundwaveHideLiked')}</span>
+                  <button
+                    type="button"
+                    onClick={() => setSoundwaveHideLiked(!soundwaveHideLiked)}
+                    className={`px-3 py-1 rounded-full text-[10px] font-bold transition-all ${
+                      soundwaveHideLiked
+                        ? 'bg-accent hover:bg-accent-hover text-accent-contrast shadow-[0_0_16px_var(--color-accent-glow)]'
+                        : 'bg-white/10 text-white/50 hover:text-white'
+                    }`}
+                  >
+                    {soundwaveHideLiked ? t('eq.on') : t('eq.off')}
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-white/55">{t('settings.soundwaveTrackVisual')}</span>
+                  <button
+                    type="button"
+                    onClick={() => setSoundwaveTrackVisual(!soundwaveTrackVisual)}
+                    className={`px-3 py-1 rounded-full text-[10px] font-bold transition-all ${
+                      soundwaveTrackVisual
+                        ? 'bg-accent hover:bg-accent-hover text-accent-contrast shadow-[0_0_16px_var(--color-accent-glow)]'
+                        : 'bg-white/10 text-white/50 hover:text-white'
+                    }`}
+                  >
+                    {soundwaveTrackVisual ? t('eq.on') : t('eq.off')}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {SOUNDWAVE_GENRE_OPTIONS.map((option) => {
                     const active = soundwaveSelectedGenres.includes(option.value);
                     return (

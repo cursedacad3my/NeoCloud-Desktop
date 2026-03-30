@@ -3,9 +3,11 @@ import { isTauri } from '@tauri-apps/api/core';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../lib/api';
+import { DEFAULT_API_BASE, getApiBase, normalizeApiBase } from '../lib/constants';
 import { Check, ClipboardCopy, Disc3 } from '../lib/icons';
 import { queryClient } from '../main';
 import { useAuthStore } from '../stores/auth';
+import { useSettingsStore } from '../stores/settings';
 
 interface LoginResponse {
   url: string;
@@ -20,10 +22,16 @@ export function Login() {
   const { t } = useTranslation();
   const setSession = useAuthStore((s) => s.setSession);
   const fetchUser = useAuthStore((s) => s.fetchUser);
+  const apiMode = useSettingsStore((s) => s.apiMode);
+  const customApiBase = useSettingsStore((s) => s.customApiBase);
+  const setApiMode = useSettingsStore((s) => s.setApiMode);
+  const setCustomApiBase = useSettingsStore((s) => s.setCustomApiBase);
   const [loading, setLoading] = useState(false);
   const [authUrl, setAuthUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const normalizedCustomApi = normalizeApiBase(customApiBase);
+  const canUseCustomApi = apiMode === 'auto' || Boolean(normalizedCustomApi);
 
   useEffect(() => {
     return () => {
@@ -91,8 +99,52 @@ export function Login() {
         <div className="text-center">
           <h1 className="text-2xl font-bold tracking-tight">SoundCloud Desktop</h1>
           <p className="text-[13px] text-white/30 mt-2">
-            {loading ? t('auth.signingIn') : 'Your music, your way'}
+            {loading ? t('auth.signingIn') : t('auth.loginSubtitle')}
           </p>
+        </div>
+
+        <div className="w-full rounded-[24px] border border-white/[0.06] bg-white/[0.03] p-3 backdrop-blur-xl space-y-3">
+          <div className="flex gap-2">
+            {(['auto', 'custom'] as const).map((mode) => {
+              const active = apiMode === mode;
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setApiMode(mode)}
+                  className={`flex-1 rounded-2xl px-3 py-2 text-[12px] font-semibold transition-all ${
+                    active
+                      ? 'bg-white/[0.12] text-white border border-white/[0.12]'
+                      : 'bg-white/[0.03] text-white/45 border border-white/[0.05] hover:text-white/70 hover:bg-white/[0.06]'
+                  }`}
+                >
+                  {mode === 'auto' ? t('settings.apiModeAuto') : t('settings.apiModeCustom')}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="space-y-1.5">
+            <p className="text-[11px] font-medium text-white/42">
+              {t('settings.currentApiServer')}: {getApiBase()}
+            </p>
+            {apiMode === 'custom' ? (
+              <>
+                <input
+                  type="text"
+                  value={customApiBase}
+                  onChange={(e) => setCustomApiBase(e.target.value)}
+                  placeholder={t('settings.customApiPlaceholder')}
+                  className="w-full rounded-2xl border border-white/[0.06] bg-white/[0.04] px-4 py-3 text-[13px] text-white/85 placeholder:text-white/20 outline-none transition-all focus:border-white/[0.12] focus:bg-white/[0.06]"
+                />
+                {!canUseCustomApi && (
+                  <p className="text-[11px] text-red-300/80">{t('settings.customApiInvalid')}</p>
+                )}
+              </>
+            ) : (
+              <p className="text-[11px] text-white/28">{DEFAULT_API_BASE}</p>
+            )}
+          </div>
         </div>
 
         {loading ? (
@@ -127,7 +179,8 @@ export function Login() {
           <button
             type="button"
             onClick={handleLogin}
-            className="w-full py-3.5 rounded-2xl bg-accent text-accent-contrast font-semibold text-sm hover:bg-accent-hover active:scale-[0.97] transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer shadow-[0_0_40px_var(--color-accent-glow),0_4px_12px_rgba(0,0,0,0.3)] hover:shadow-[0_0_60px_var(--color-accent-glow),0_4px_16px_rgba(0,0,0,0.4)]"
+            disabled={!canUseCustomApi}
+            className="w-full py-3.5 rounded-2xl bg-accent text-accent-contrast font-semibold text-sm hover:bg-accent-hover active:scale-[0.97] transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer shadow-[0_0_40px_var(--color-accent-glow),0_4px_12px_rgba(0,0,0,0.3)] hover:shadow-[0_0_60px_var(--color-accent-glow),0_4px_16px_rgba(0,0,0,0.4)] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-accent disabled:active:scale-100 disabled:hover:shadow-[0_0_40px_var(--color-accent-glow),0_4px_12px_rgba(0,0,0,0.3)]"
           >
             {t('auth.signIn')}
           </button>

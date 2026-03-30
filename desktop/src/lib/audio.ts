@@ -26,6 +26,7 @@ let stallProbeInFlight = false;
 let stallRecoveryInFlight = false;
 let stallSuppressedUntil = 0;
 let endedGuardUntil = 0;
+let deviceChangeCooldownUntil = 0;
 const listeners = new Set<() => void>();
 
 function notify() {
@@ -475,6 +476,25 @@ function setupTauriBindings() {
     console.log('[Audio] Device reconnected (BT profile switch?), reloading track...');
     void reloadCurrentTrack();
   });
+
+  if (typeof navigator !== 'undefined' && navigator.mediaDevices?.addEventListener) {
+    navigator.mediaDevices.addEventListener('devicechange', () => {
+      if (!hasTrack || !usePlayerStore.getState().isPlaying) return;
+
+      const now = Date.now();
+      if (now < deviceChangeCooldownUntil) return;
+      deviceChangeCooldownUntil = now + 3000;
+
+      console.log('[Audio] Media devices changed, re-binding output...');
+      invoke('audio_switch_device', { deviceName: null })
+        .then(() => {
+          void reloadCurrentTrack();
+        })
+        .catch(() => {
+          void reloadCurrentTrack();
+        });
+    });
+  }
 
   setInterval(() => {
     if (!isTauriRuntime() || !hasTrack || !lastTickAt) return;

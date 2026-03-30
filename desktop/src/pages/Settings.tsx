@@ -4,7 +4,9 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Skeleton } from '../components/ui/Skeleton.tsx';
 import { reloadCurrentTrack } from '../lib/audio';
+import { DEFAULT_API_BASE, getApiBase, normalizeApiBase } from '../lib/constants';
 import {
+  cacheTracksBatch,
   clearAssetsCache,
   clearCache,
   downloadWallpaper,
@@ -15,8 +17,10 @@ import {
   removeWallpaper,
   saveWallpaperFromBuffer,
 } from '../lib/cache';
+import { fetchAllLikedTracks } from '../lib/hooks';
 import { Globe, Link, Loader2, Trash2, X } from '../lib/icons';
 import { useAuthStore } from '../stores/auth';
+import { useDislikesStore } from '../stores/dislikes';
 import {
   isDefaultQdrantKeyInUse,
   THEME_PRESETS,
@@ -146,6 +150,8 @@ const CacheSection = React.memo(function CacheSection() {
   const [assetsSize, setAssetsSize] = useState<number | null>(null);
   const [clearingAudio, setClearingAudio] = useState(false);
   const [clearingAssets, setClearingAssets] = useState(false);
+  const [cachingLikes, setCachingLikes] = useState(false);
+  const [cacheLikesProgress, setCacheLikesProgress] = useState<{ completed: number; total: number } | null>(null);
 
   useEffect(() => {
     getCacheSize().then(setAudioSize);
@@ -177,6 +183,42 @@ const CacheSection = React.memo(function CacheSection() {
       setClearingAssets(false);
     }
   }, [t]);
+
+  const refreshSizes = useCallback(() => {
+    void getCacheSize().then(setAudioSize);
+    void getAssetsCacheSize().then(setAssetsSize);
+  }, []);
+
+  const handleCacheAllLiked = useCallback(async () => {
+    setCachingLikes(true);
+    setCacheLikesProgress({ completed: 0, total: 0 });
+
+    try {
+      const likedTracks = await fetchAllLikedTracks();
+      setCacheLikesProgress({ completed: 0, total: likedTracks.length });
+
+      const result = await cacheTracksBatch(
+        likedTracks.map((track) => track.urn),
+        {
+          concurrency: 3,
+          onProgress: (progress) => setCacheLikesProgress(progress),
+        },
+      );
+
+      refreshSizes();
+      toast.success(
+        t('settings.cacheAllLikedDone', {
+          completed: result.completed,
+          skipped: result.skipped,
+          failed: result.failed,
+        }),
+      );
+    } catch {
+      toast.error(t('common.error'));
+    } finally {
+      setCachingLikes(false);
+    }
+  }, [refreshSizes, t]);
 
   const totalSize = (audioSize ?? 0) + (assetsSize ?? 0);
 
@@ -212,6 +254,25 @@ const CacheSection = React.memo(function CacheSection() {
         onClear={handleClearAssets}
         t={t}
       />
+      <div className="border-t border-white/[0.04]" />
+      <div className="flex items-center justify-between gap-4 py-2">
+        <div className="min-w-0">
+          <p className="text-[13px] text-white/70 font-medium">{t('settings.cacheAllLiked')}</p>
+          <p className="text-[11px] text-white/30">
+            {cachingLikes && cacheLikesProgress
+              ? t('settings.cacheAllLikedProgress', cacheLikesProgress)
+              : t('settings.cacheAllLikedDesc')}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={handleCacheAllLiked}
+          disabled={cachingLikes}
+          className="shrink-0 rounded-xl border border-white/[0.08] bg-white/[0.05] px-4 py-2 text-[12px] font-semibold text-white/85 transition-all hover:bg-white/[0.09] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {cachingLikes ? t('settings.cachingNow') : t('settings.startCaching')}
+        </button>
+      </div>
     </section>
   );
 });
@@ -580,6 +641,25 @@ const AudioDeviceSection = React.memo(function AudioDeviceSection() {
   const [sinks, setSinks] = useState<AudioSink[]>([]);
   const [switching, setSwitching] = useState(false);
 
+  const sinkOptions = React.useMemo(() => {
+    const totalByLabel = new Map<string, number>();
+    for (const sink of sinks) {
+      const base = (sink.description || sink.name || '').trim() || t('settings.audioDeviceDefault');
+      totalByLabel.set(base, (totalByLabel.get(base) || 0) + 1);
+    }
+
+    const seenByLabel = new Map<string, number>();
+    return sinks.map((sink) => {
+      const base = (sink.description || sink.name || '').trim() || t('settings.audioDeviceDefault');
+      const seen = (seenByLabel.get(base) || 0) + 1;
+      seenByLabel.set(base, seen);
+
+      const total = totalByLabel.get(base) || 1;
+      const label = total > 1 ? `${base} (${seen})` : base;
+      return { sink, label };
+    });
+  }, [sinks, t]);
+
   const refreshSinks = React.useCallback(() => {
     invoke<AudioSink[]>('audio_list_devices').then(setSinks).catch(console.error);
   }, []);
@@ -616,7 +696,7 @@ const AudioDeviceSection = React.memo(function AudioDeviceSection() {
         {t('settings.audioDevice')}
       </h3>
       <div className="flex gap-2 flex-wrap">
-        {sinks.map((sink) => (
+        {sinkOptions.map(({ sink, label }) => (
           <button
             key={sink.name}
             onClick={() => handleSwitch(sink.name)}
@@ -627,7 +707,7 @@ const AudioDeviceSection = React.memo(function AudioDeviceSection() {
                 : 'bg-white/[0.02] text-white/40 border-white/[0.05] hover:bg-white/[0.06] hover:text-white/60'
             } disabled:opacity-50`}
           >
-            {sink.description}
+            {label}
           </button>
         ))}
       </div>
@@ -877,12 +957,12 @@ const PlaybackSection = React.memo(function PlaybackSection() {
   const unlockFramerate = useSettingsStore((s) => s.unlockFramerate);
   const showFpsCounter = useSettingsStore((s) => s.showFpsCounter);
   const hardwareAcceleration = useSettingsStore((s) => s.hardwareAcceleration);
+  const lowPerformanceMode = useSettingsStore((s) => s.lowPerformanceMode);
   const setTargetFramerate = useSettingsStore((s) => s.setTargetFramerate);
   const setUnlockFramerate = useSettingsStore((s) => s.setUnlockFramerate);
   const setShowFpsCounter = useSettingsStore((s) => s.setShowFpsCounter);
   const setHardwareAcceleration = useSettingsStore((s) => s.setHardwareAcceleration);
-  const classicPlaybar = useSettingsStore((s) => s.classicPlaybar);
-  const setClassicPlaybar = useSettingsStore((s) => s.setClassicPlaybar);
+  const setLowPerformanceMode = useSettingsStore((s) => s.setLowPerformanceMode);
   const crossfadeEnabled = useSettingsStore((s) => s.crossfadeEnabled);
   const crossfadeDuration = useSettingsStore((s) => s.crossfadeDuration);
   const setCrossfadeEnabled = useSettingsStore((s) => s.setCrossfadeEnabled);
@@ -957,34 +1037,12 @@ const PlaybackSection = React.memo(function PlaybackSection() {
 
       <div className="border-t border-white/[0.04]" />
 
-      {/* Classic Playbar */}
-      <div className="flex items-center justify-between">
-        <div className="space-y-0.5">
-          <p className="text-[13px] text-white/70 font-medium">{t('settings.classicPlaybar')}</p>
-          <p className="text-[11px] text-white/30">{t('settings.classicPlaybarDesc')}</p>
-        </div>
-        <button
-          onClick={() => setClassicPlaybar(!classicPlaybar)}
-          className={`w-11 h-6 rounded-full transition-all duration-200 cursor-pointer relative ${
-            classicPlaybar ? 'bg-accent' : 'bg-white/10'
-          }`}
-        >
-          <div
-            className={`absolute top-0.5 w-5 h-5 rounded-full shadow-md transition-all duration-200 ${
-              classicPlaybar ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-white'
-            }`}
-          />
-        </button>
-      </div>
-
-      <div className="border-t border-white/[0.04]" />
-
       {/* Crossfade */}
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <div className="space-y-0.5">
-            <p className="text-[13px] text-white/70 font-medium">{t('settings.crossfade', 'Crossfade Mode')}</p>
-            <p className="text-[11px] text-white/30">{t('settings.crossfadeDesc', 'Smoothly fade between tracks')}</p>
+            <p className="text-[13px] text-white/70 font-medium">{t('settings.crossfade')}</p>
+            <p className="text-[11px] text-white/30">{t('settings.crossfadeDesc')}</p>
           </div>
           <button
             onClick={() => setCrossfadeEnabled(!crossfadeEnabled)}
@@ -1002,7 +1060,7 @@ const PlaybackSection = React.memo(function PlaybackSection() {
 
         <div className={`transition-opacity duration-300 space-y-3 ${crossfadeEnabled ? 'opacity-100' : 'opacity-30 pointer-events-none'}`}>
           <div className="flex items-center justify-between">
-            <label className="text-[13px] text-white/60">{t('settings.crossfadeDuration', 'Duration')}</label>
+            <label className="text-[13px] text-white/60">{t('settings.crossfadeDuration')}</label>
             <span className="text-[12px] text-white/40 tabular-nums">{crossfadeDuration}s</span>
           </div>
           <input
@@ -1113,6 +1171,32 @@ const PlaybackSection = React.memo(function PlaybackSection() {
             )}
           </>
         )}
+      </div>
+
+      <div className="border-t border-white/[0.04]" />
+
+      <div className="flex items-center justify-between">
+        <div className="space-y-1 pr-4">
+          <p className="text-[13px] text-white/70 font-medium">
+            {t('settings.lowPerformanceMode')}
+          </p>
+          <p className="text-[11px] text-white/30">
+            {t('settings.lowPerformanceModeDesc')}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setLowPerformanceMode(!lowPerformanceMode)}
+          className={`w-11 h-6 rounded-full transition-all duration-200 cursor-pointer relative ${
+            lowPerformanceMode ? 'bg-accent' : 'bg-white/10'
+          }`}
+        >
+          <div
+            className={`absolute top-0.5 w-5 h-5 rounded-full shadow-md transition-all duration-200 ${
+              lowPerformanceMode ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-white'
+            }`}
+          />
+        </button>
       </div>
 
       <div className="border-t border-white/[0.04]" />
@@ -1233,13 +1317,13 @@ const ImportSection = React.memo(function ImportSection() {
           onClick={() => setSpotifyOpen(true)}
           className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-[13px] font-semibold bg-[#1db954]/10 text-[#1db954] hover:bg-[#1db954]/20 border border-[#1db954]/20 hover:border-[#1db954]/30 transition-all duration-300 cursor-pointer"
         >
-          ▶ Import from Spotify
+          ▶ {t('importExternal.spotifyTitle')}
         </button>
         <button
           onClick={() => setYtOpen(true)}
           className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-[13px] font-semibold bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/30 transition-all duration-300 cursor-pointer"
         >
-          ▶ Import from YouTube Music
+          ▶ {t('importExternal.youtubeTitle')}
         </button>
       </div>
       {ymOpen && (
@@ -1282,6 +1366,48 @@ const AccountSection = React.memo(function AccountSection() {
       >
         {t('auth.signOut')}
       </button>
+    </section>
+  );
+});
+
+const DislikedTracksSection = React.memo(function DislikedTracksSection() {
+  const { t } = useTranslation();
+  const dislikedTrackUrns = useDislikesStore((s) => s.dislikedTrackUrns);
+  const toggleDislike = useDislikesStore((s) => s.toggleDislike);
+
+  return (
+    <section className="bg-white/[0.02] border border-white/[0.05] backdrop-blur-[60px] rounded-3xl p-6 shadow-xl">
+      <h3 className="text-[15px] font-bold text-white/80 tracking-tight mb-4">
+        {t('settings.dislikedTracksTitle')}
+      </h3>
+
+      {dislikedTrackUrns.length === 0 ? (
+        <p className="text-[12px] text-white/35">{t('settings.dislikedTracksEmpty')}</p>
+      ) : (
+        <div className="space-y-2.5">
+          {dislikedTrackUrns.map((urn) => {
+            const shortUrn = urn.split(':').pop() || urn;
+            return (
+              <div
+                key={urn}
+                className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.06] bg-white/[0.03] px-3.5 py-2.5"
+              >
+                <div className="min-w-0">
+                  <p className="text-[12px] text-white/75 font-medium truncate">#{shortUrn}</p>
+                  <p className="text-[10px] text-white/30 truncate">{urn}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => toggleDislike(urn)}
+                  className="shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-semibold text-red-300/90 bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition-colors cursor-pointer"
+                >
+                  {t('settings.removeDislike')}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 });
@@ -1531,6 +1657,70 @@ const EqualizerSection = React.memo(function EqualizerSection() {
   );
 });
 
+const ApiSection = React.memo(function ApiSection() {
+  const { t } = useTranslation();
+  const apiMode = useSettingsStore((s) => s.apiMode);
+  const customApiBase = useSettingsStore((s) => s.customApiBase);
+  const setApiMode = useSettingsStore((s) => s.setApiMode);
+  const setCustomApiBase = useSettingsStore((s) => s.setCustomApiBase);
+  const normalizedCustomApi = normalizeApiBase(customApiBase);
+
+  return (
+    <section className="bg-white/[0.02] border border-white/[0.05] backdrop-blur-[60px] rounded-3xl p-6 shadow-xl space-y-4">
+      <div>
+        <h3 className="text-[15px] font-bold text-white/80 tracking-tight">{t('settings.apiServer')}</h3>
+        <p className="mt-1 text-[12px] text-white/35">{t('settings.apiServerDesc')}</p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        {(['auto', 'custom'] as const).map((mode) => {
+          const active = apiMode === mode;
+          return (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setApiMode(mode)}
+              className={`rounded-2xl border px-4 py-3 text-[12px] font-semibold transition-all ${
+                active
+                  ? 'border-white/[0.14] bg-white/[0.09] text-white/90'
+                  : 'border-white/[0.05] bg-white/[0.03] text-white/45 hover:bg-white/[0.05] hover:text-white/70'
+              }`}
+            >
+              {mode === 'auto' ? t('settings.apiModeAuto') : t('settings.apiModeCustom')}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="rounded-2xl border border-white/[0.05] bg-white/[0.03] p-4 space-y-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/28">
+            {t('settings.currentApiServer')}
+          </p>
+          <p className="mt-1 text-[13px] text-white/80 break-all">{getApiBase()}</p>
+        </div>
+
+        {apiMode === 'custom' ? (
+          <div className="space-y-2">
+            <input
+              type="text"
+              value={customApiBase}
+              onChange={(e) => setCustomApiBase(e.target.value)}
+              placeholder={t('settings.customApiPlaceholder')}
+              className="w-full rounded-2xl border border-white/[0.06] bg-white/[0.04] px-4 py-3 text-[13px] text-white/85 placeholder:text-white/20 outline-none transition-all focus:border-white/[0.12] focus:bg-white/[0.06]"
+            />
+            <p className={`text-[11px] ${normalizedCustomApi ? 'text-emerald-200/70' : 'text-red-300/80'}`}>
+              {normalizedCustomApi ? normalizedCustomApi : t('settings.customApiInvalid')}
+            </p>
+          </div>
+        ) : (
+          <p className="text-[12px] text-white/30">{DEFAULT_API_BASE}</p>
+        )}
+      </div>
+    </section>
+  );
+});
+
 /* ── Main ───────────────────────────────────────────────── */
 
 export function Settings() {
@@ -1548,6 +1738,8 @@ export function Settings() {
       <EqualizerSection />
       <AudioDeviceSection />
       <ImportSection />
+      <ApiSection />
+      <DislikedTracksSection />
       <AccountSection />
     </div>
   );

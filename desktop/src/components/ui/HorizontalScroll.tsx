@@ -13,10 +13,21 @@ export function HorizontalScroll({ children, className = '' }: HorizontalScrollP
     if (!el) return;
 
     const onWheel = (e: WheelEvent) => {
-      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
-        e.preventDefault();
-        el.scrollLeft += e.deltaY;
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+
+      const maxScrollLeft = el.scrollWidth - el.clientWidth;
+      if (maxScrollLeft <= 0) return;
+
+      const movingRight = e.deltaY > 0;
+      const atLeftEdge = el.scrollLeft <= 0;
+      const atRightEdge = el.scrollLeft >= maxScrollLeft - 1;
+
+      if ((movingRight && atRightEdge) || (!movingRight && atLeftEdge)) {
+        return;
       }
+
+      e.preventDefault();
+      el.scrollLeft += e.deltaY;
     };
 
     el.addEventListener('wheel', onWheel, { passive: false });

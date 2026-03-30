@@ -1,4 +1,33 @@
-export const API_BASE = import.meta.env.VITE_API_BASE || 'https://api.soundcloud.su';
+import { useSettingsStore } from '../stores/settings';
+
+export const DEFAULT_API_BASE = import.meta.env.VITE_API_BASE || 'https://api.soundcloud.su';
+
+export function normalizeApiBase(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+
+  try {
+    const url = new URL(withProtocol);
+    return url.origin.replace(/\/$/, '');
+  } catch {
+    return '';
+  }
+}
+
+export function getApiBase() {
+  const { apiMode, customApiBase } = useSettingsStore.getState();
+  if (apiMode === 'custom') {
+    const normalized = normalizeApiBase(customApiBase);
+    if (normalized) return normalized;
+  }
+  return DEFAULT_API_BASE;
+}
+
+export function buildApiUrl(path: string) {
+  return `${getApiBase()}${path}`;
+}
 
 export const GITHUB_OWNER = 'Teiwazik';
 export const GITHUB_REPO = 'SoundCloud-DesktopFork';

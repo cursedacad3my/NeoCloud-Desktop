@@ -2,9 +2,10 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 import { api, getSessionId } from '../../lib/api';
-import { API_BASE } from '../../lib/constants';
+import { getApiBase } from '../../lib/constants';
 import { Loader2, X } from '../../lib/icons';
 import { useSettingsStore } from '../../stores/settings';
 
@@ -34,6 +35,7 @@ export function SpotifyImportDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const clientId = useSettingsStore((s) => s.spotifyClientId);
   const setClientId = useSettingsStore((s) => s.setSpotifyClientId);
@@ -74,7 +76,7 @@ export function SpotifyImportDialog({
 
   const handleSignIn = useCallback(async () => {
     if (!clientId.trim()) {
-      setError('Please enter your Spotify Client ID first.');
+      setError(t('importExternal.spotifyClientIdRequired'));
       return;
     }
     setError(null);
@@ -85,7 +87,7 @@ export function SpotifyImportDialog({
       setError(String(e));
       setSigningIn(false);
     }
-  }, [clientId]);
+  }, [clientId, t]);
 
   const handleLogout = useCallback(() => {
     invoke('spotify_logout').catch(console.error);
@@ -129,7 +131,7 @@ export function SpotifyImportDialog({
     setError(null);
     try {
       const urns: string[] = await invoke('spotify_import_start', {
-        backendUrl: API_BASE,
+        backendUrl: getApiBase(),
         sessionId: getSessionId() || '',
       });
       setDone(true);
@@ -158,7 +160,7 @@ export function SpotifyImportDialog({
           {/* Header */}
           <div className="px-7 pt-6 pb-4 border-b border-white/[0.06] flex items-center justify-between">
             <Dialog.Title className="text-[18px] font-bold text-white/90 tracking-tight flex items-center gap-2">
-              <span style={{ color: '#1db954' }}>▶</span> Import from Spotify
+              <span style={{ color: '#1db954' }}>▶</span> {t('importExternal.spotifyTitle')}
             </Dialog.Title>
             <Dialog.Close asChild>
               <button className="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white/60 hover:bg-white/[0.08] transition-all cursor-pointer">
@@ -185,14 +187,16 @@ export function SpotifyImportDialog({
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-[15px] font-bold text-white/90 truncate">{playlist.title}</p>
-                    <p className="text-[12px] text-white/40 mt-0.5">{progress?.found || 0} tracks imported</p>
-                    <p className="text-[11px] text-[#1db954] mt-1">✓ Done!</p>
+                    <p className="text-[12px] text-white/40 mt-0.5">
+                      {t('importExternal.tracksImported', { count: progress?.found || 0 })}
+                    </p>
+                    <p className="text-[11px] text-[#1db954] mt-1">✓ {t('importExternal.done')}</p>
                   </div>
                   <button
                     onClick={() => { onOpenChange(false); navigate(`/playlist/${encodeURIComponent(playlist.urn)}`); }}
                     className="px-4 py-2 rounded-xl bg-[#1db954]/20 hover:bg-[#1db954]/30 text-[13px] font-semibold text-[#1db954] border border-[#1db954]/20 transition-all cursor-pointer shrink-0"
                   >
-                    Open
+                    {t('importExternal.open')}
                   </button>
                 </div>
               </div>
@@ -200,19 +204,21 @@ export function SpotifyImportDialog({
               <>
                 {/* Client ID setup */}
                 <div className="space-y-2">
-                  <p className="text-[13px] font-semibold text-white/70">Spotify Client ID</p>
+                  <p className="text-[13px] font-semibold text-white/70">
+                    {t('importExternal.spotifyClientIdLabel')}
+                  </p>
                   <p className="text-[12px] text-white/40">
-                    Create a free app at{' '}
-                    <span className="text-[#1db954]">developer.spotify.com/dashboard</span> and set
-                    the redirect URI to{' '}
+                    {t('importExternal.spotifyClientIdHintBefore')}{' '}
+                    <span className="text-[#1db954]">developer.spotify.com/dashboard</span>
+                    {' '}{t('importExternal.spotifyClientIdHintAfter')}{' '}
                     <span className="text-white/60 font-mono text-[11px]">http://127.0.0.1:PORT/callback</span>
-                    {' '}(any port). Then paste your Client ID here.
+                    {' '}{t('importExternal.spotifyClientIdHintPort')}
                   </p>
                   <input
                     type="text"
                     value={clientId}
                     onChange={(e) => setClientId(e.target.value)}
-                    placeholder="Paste your Spotify Client ID…"
+                    placeholder={t('importExternal.spotifyClientIdPlaceholder')}
                     className="w-full px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.06] text-[13px] text-white/80 placeholder:text-white/20 focus:border-white/[0.12] focus:bg-white/[0.06] transition-all outline-none"
                   />
                 </div>
@@ -221,14 +227,16 @@ export function SpotifyImportDialog({
               <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-[#1db954]/10 border border-[#1db954]/20">
                 <span className="text-xl">✔</span>
                 <div>
-                  <p className="text-[13px] font-semibold text-[#1db954]">Signed into Spotify</p>
-                  <p className="text-[11px] text-white/40">Ready to import your liked songs</p>
+                  <p className="text-[13px] font-semibold text-[#1db954]">
+                    {t('importExternal.spotifySignedIn')}
+                  </p>
+                  <p className="text-[11px] text-white/40">{t('importExternal.spotifyReady')}</p>
                 </div>
                 <button
                   onClick={handleLogout}
                   className="ml-auto text-[11px] text-white/30 hover:text-white/60 transition-colors cursor-pointer"
                 >
-                  Sign out
+                  {t('auth.signOut')}
                 </button>
               </div>
             )}
@@ -241,8 +249,12 @@ export function SpotifyImportDialog({
                 </div>
                 <div className="flex items-center justify-between text-[12px] text-white/40">
                   <span>{progress.current} / {progress.total}</span>
-                  <span className="text-green-400">Found: {progress.found}</span>
-                  <span className="text-red-400">Not found: {progress.not_found}</span>
+                  <span className="text-green-400">
+                    {t('importExternal.found', { count: progress.found })}
+                  </span>
+                  <span className="text-red-400">
+                    {t('importExternal.notFound', { count: progress.not_found })}
+                  </span>
                 </div>
                 {progress.current_track && (
                   <p className="text-[12px] text-white/30 truncate">{progress.current_track}</p>
@@ -250,7 +262,7 @@ export function SpotifyImportDialog({
               </div>
             )}
 
-            {saving && <p className="text-[13px] text-white/50 animate-pulse">Saving playlist…</p>}
+            {saving && <p className="text-[13px] text-white/50 animate-pulse">{t('importExternal.savingPlaylist')}</p>}
           </div>
 
           {/* Footer */}
@@ -263,11 +275,11 @@ export function SpotifyImportDialog({
                   className="flex items-center gap-2 px-5 py-2 rounded-xl bg-[#1db954]/20 hover:bg-[#1db954]/30 text-[13px] font-semibold text-[#1db954] border border-[#1db954]/20 transition-all cursor-pointer disabled:opacity-50"
                 >
                   {signingIn && <Loader2 size={14} className="animate-spin" />}
-                  Sign in with Spotify
+                  {t('importExternal.spotifySignIn')}
                 </button>
               ) : running ? (
                 <button onClick={handleStop} className="px-5 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-[13px] font-semibold text-red-400 border border-red-500/10 cursor-pointer">
-                  Stop
+                  {t('importExternal.stopImport')}
                 </button>
               ) : (
                 <button
@@ -275,7 +287,7 @@ export function SpotifyImportDialog({
                   disabled={done}
                   className="px-5 py-2 rounded-xl bg-[#1db954]/20 hover:bg-[#1db954]/30 text-[13px] font-semibold text-[#1db954] border border-[#1db954]/20 transition-all cursor-pointer disabled:opacity-30"
                 >
-                  Start Import
+                  {t('importExternal.startImport')}
                 </button>
               )}
             </div>

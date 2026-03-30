@@ -2,6 +2,7 @@ import { isTauri } from '@tauri-apps/api/core';
 import { create } from 'zustand';
 import { api } from '../lib/api';
 import { type AudioFeatures, audioAnalyser } from '../lib/audio-analyser';
+import { getCacheFilePath } from '../lib/cache';
 import { type FeedItem, fetchAllLikedTracks, type Playlist } from '../lib/hooks';
 import {
   analyzeTrackLanguage,
@@ -10,6 +11,7 @@ import {
   type TrackLanguageProfile,
 } from '../lib/language-detection';
 import { rerankTracksWithLLM } from '../lib/llm-rerank';
+import { requestMertEmbedding } from '../lib/mert-analyser';
 import { fetchCrossPlatformRegionalTracks } from '../lib/popular-sources';
 import { QdrantClient, type QdrantScoredPoint } from '../lib/qdrant';
 import { useAuthStore } from './auth';
@@ -412,6 +414,10 @@ const PLAYED_FEATURE_UPSERT_MAX_TRACKS = 1800;
 const PLAYED_FEATURE_UPSERT_BATCH_SIZE = 24;
 const PLAYED_FEATURE_RETRY_DELAY_MS = 450;
 const PLAYED_FEATURE_MAX_RETRY_ATTEMPTS = 6;
+const MERT_ENRICH_UPSERT_TTL_MS = 1000 * 60 * 60 * 10;
+const MERT_ENRICH_MAX_TRACKS = 1800;
+const MERT_ENDPOINT_BASE_COOLDOWN_MS = 1000 * 5;
+const MERT_ENDPOINT_MAX_COOLDOWN_MS = 1000 * 20;
 
 const playedFeatureUpsertTs = new Map<string, number>();
 const playedFeatureUpsertQueue = new Map<
@@ -420,9 +426,13 @@ const playedFeatureUpsertQueue = new Map<
 >();
 const playedFeatureRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const playedFeatureRetryAttempts = new Map<string, number>();
+const mertEnrichedUpsertTs = new Map<string, number>();
+const mertEnrichInFlight = new Map<string, Promise<void>>();
 
 let playedFeatureFlushTimer: ReturnType<typeof setTimeout> | null = null;
 let playedFeatureFlushInFlight = false;
+let mertEndpointCooldownUntil = 0;
+let mertEndpointFailureStreak = 0;
 
 let globalDiscoveryCache: { ts: number; tracks: Track[] } | null = null;
 let globalDiscoveryInFlight: Promise<Track[]> | null = null;
@@ -581,6 +591,15 @@ const rememberPlayedFeatureUpsert = (urn: string, ts: number) => {
   }
 };
 
+const rememberMertFeatureUpsert = (urn: string, ts: number) => {
+  mertEnrichedUpsertTs.set(urn, ts);
+  while (mertEnrichedUpsertTs.size > MERT_ENRICH_MAX_TRACKS) {
+    const oldest = mertEnrichedUpsertTs.keys().next().value;
+    if (!oldest) break;
+    mertEnrichedUpsertTs.delete(oldest);
+  }
+};
+
 const schedulePlayedFeatureFlush = (
   getState: () => SoundWaveState,
   delayMs = 900,
@@ -631,6 +650,70 @@ const flushPlayedFeatureQueue = async (getState: () => SoundWaveState) => {
       schedulePlayedFeatureFlush(getState, 1400);
     }
   }
+};
+
+const enrichTrackWithMertInBackground = (
+  getState: () => SoundWaveState,
+  track: Track,
+  features: AudioFeatures,
+  isLiked: boolean,
+) => {
+  if (!track?.urn || !features) return;
+  if (mertEnrichInFlight.has(track.urn)) return;
+
+  const now = Date.now();
+  if (now < mertEndpointCooldownUntil) return;
+
+  const last = mertEnrichedUpsertTs.get(track.urn);
+  if (last && now - last < MERT_ENRICH_UPSERT_TTL_MS) return;
+
+  const task = (async () => {
+    const qdrant = getState().qdrant;
+    if (!qdrant) return;
+
+    const settings = useSettingsStore.getState();
+    if (!settings.qdrantEnabled) return;
+    if (!settings.llmRerankEnabled) return;
+
+    const endpoint = settings.llmEndpoint?.trim();
+    const configuredModel = settings.llmModel?.trim();
+    if (!endpoint || !configuredModel || !/mert/i.test(configuredModel)) return;
+    const model = configuredModel;
+
+    const cachePath = await getCacheFilePath(track.urn);
+    if (!cachePath) return;
+
+    const embedding = await requestMertEmbedding({
+      endpoint,
+      model,
+      filePath: cachePath,
+      trackUrn: track.urn,
+      timeoutMs: 15000,
+    });
+
+    if (!embedding?.length) {
+      mertEndpointFailureStreak += 1;
+      const backoff = Math.min(
+        MERT_ENDPOINT_MAX_COOLDOWN_MS,
+        MERT_ENDPOINT_BASE_COOLDOWN_MS * 2 ** Math.min(mertEndpointFailureStreak - 1, 4),
+      );
+      mertEndpointCooldownUntil = Date.now() + backoff;
+      return;
+    }
+
+    await qdrant.upsert([{ track, features, isLiked, mertEmbedding: embedding }]);
+    mertEndpointFailureStreak = 0;
+    rememberMertFeatureUpsert(track.urn, Date.now());
+    console.log(`[SoundWave] MERT enrichment indexed: ${track.title}`);
+  })()
+    .catch((error) => {
+      console.warn('[SoundWave] MERT enrichment skipped', error);
+    })
+    .finally(() => {
+      mertEnrichInFlight.delete(track.urn);
+    });
+
+  mertEnrichInFlight.set(track.urn, task);
 };
 
 const extractTracksFromPayload = (input: unknown): Track[] => {
@@ -980,6 +1063,7 @@ const rerankIfEnabled = async (
 ): Promise<Track[]> => {
   const settings = useSettingsStore.getState();
   if (!settings.llmRerankEnabled) return tracks;
+  if ((settings.llmModel || '').toLowerCase().includes('mert')) return tracks;
   return rerankTracksWithLLM({
     endpoint: settings.llmEndpoint,
     model: settings.llmModel,
@@ -1600,10 +1684,12 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
     });
 
     if (playedFeatureUpsertQueue.size >= PLAYED_FEATURE_UPSERT_BATCH_SIZE) {
+      enrichTrackWithMertInBackground(get, track, features, isLiked);
       void flushPlayedFeatureQueue(get);
       return;
     }
 
+    enrichTrackWithMertInBackground(get, track, features, isLiked);
     schedulePlayedFeatureFlush(get, 900);
   },
 
@@ -2080,6 +2166,23 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
               }
             }
 
+            if (settings.soundwaveHideLiked) {
+              const before = candidatesForFinalize.length;
+              candidatesForFinalize = candidatesForFinalize.filter((track) => {
+                const rankedTrack = track as RankedTrack;
+                return !(
+                  likedUrns.has(track.urn) ||
+                  Boolean(track.user_favorite) ||
+                  Boolean(rankedTrack._isLiked)
+                );
+              });
+              if (before !== candidatesForFinalize.length) {
+                console.log(
+                  `[SoundWave] Hide liked tracks: ${candidatesForFinalize.length}/${before} candidates kept`,
+                );
+              }
+            }
+
             const finalTracks = await finalizeCandidates(candidatesForFinalize, currentPreset, 20);
             updateStartup(98, 'done');
 
@@ -2409,6 +2512,23 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
               return [];
             }
           }
+        }
+      }
+
+      if (settings.soundwaveHideLiked) {
+        const before = candidatesForFinalize.length;
+        candidatesForFinalize = candidatesForFinalize.filter((track) => {
+          const rankedTrack = track as RankedTrack;
+          return !(
+            likedUrns.has(track.urn) ||
+            Boolean(track.user_favorite) ||
+            Boolean(rankedTrack._isLiked)
+          );
+        });
+        if (before !== candidatesForFinalize.length) {
+          console.log(
+            `[SoundWave] Hide liked tracks: ${candidatesForFinalize.length}/${before} candidates kept`,
+          );
         }
       }
 
