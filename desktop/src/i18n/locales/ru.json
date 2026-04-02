@@ -278,7 +278,6 @@
     "genreFilterStrictOff": "Свободно",
     "genreFilterHint": "Мульти-селект жанров. В строгом режиме волна берет только выбранные жанры.",
     "soundwaveHideLiked": "Не показывать лайкнутые треки",
-    "soundwaveTrackVisual": "Карточка визуализации трека",
     "soundwaveNowPlaying": "Сейчас играет",
     "genreFilterAll": "Все жанры",
     "genreFilterSelected": "Выбрано: {{count}}",

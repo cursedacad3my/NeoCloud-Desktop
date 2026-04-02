@@ -646,6 +646,12 @@ const SyncedLyricsWithProgress = React.memo(
       return Math.max(0, Math.min((time - currentLine.time) / duration, 1));
     };
 
+    const isPauseDisplayLine = (line: (LyricLine | { time: number; text: string; isPlaceholder: true }) | undefined) => {
+      if (!line) return false;
+      const text = line.text.trim();
+      return text.length === 0 || text === '♪♪♪' || text === '...';
+    };
+
     const updateLineProgress = (idx: number, progress: number) => {
       const lineEls = lineElsRef.current;
       const current = lineEls[idx];
@@ -676,7 +682,7 @@ const SyncedLyricsWithProgress = React.memo(
         }
       });
 
-      if (currentLine && 'isPlaceholder' in currentLine && currentLine.isPlaceholder) {
+      if (isPauseDisplayLine(currentLine)) {
         const progressBar = current.querySelector('.pause-progress-bar') as HTMLElement | null;
         if (progressBar) {
           progressBar.style.width = `${progress * 100}%`;
@@ -693,6 +699,7 @@ const SyncedLyricsWithProgress = React.memo(
 
         const currentLine = linesRef.current[i];
         const isPlaceholder = currentLine && 'isPlaceholder' in currentLine && currentLine.isPlaceholder;
+        const isPauseDisplay = isPauseDisplayLine(currentLine);
         
         let state = '';
         let progress = '0%';
@@ -716,6 +723,13 @@ const SyncedLyricsWithProgress = React.memo(
         const progressChanged = el.style.getPropertyValue('--lyric-progress') !== progress;
         if (progressChanged) {
           el.style.setProperty('--lyric-progress', progress);
+        }
+
+        if (isPauseDisplay && (stateChanged || progressChanged)) {
+          const progressBar = el.querySelector('.pause-progress-bar') as HTMLElement | null;
+          if (progressBar) {
+            progressBar.style.width = progress;
+          }
         }
         
         if (state !== 'active' && (stateChanged || progressChanged)) {
@@ -779,11 +793,11 @@ const SyncedLyricsWithProgress = React.memo(
               }
               lastScrollTsRef.current = now;
             }
+          } else if (idx === -1 && !manualScrollDetachedRef.current) {
+            container.scrollTo({ top: 0, behavior: 'auto' });
           }
 
-          if (idx !== -1) {
-            applyStates(idx, prev);
-          }
+          applyStates(idx, prev);
         }
 
         if (idx !== -1) {
@@ -816,7 +830,7 @@ const SyncedLyricsWithProgress = React.memo(
             return (
               <div
                 key={`${line.time}-${i}-${isPlaceholder ? 'ph' : 'lyric'}`}
-                className={`lyric-line group relative ${isPauseDisplay ? 'px-12' : 'cursor-pointer'} origin-left transition-all duration-500 ease-[var(--ease-apple)] will-change-transform py-2.5 pr-12 text-[28px] font-bold tracking-tight antialiased text-white/22 opacity-40 scale-[0.972] translate-x-0 data-[state=active]:opacity-100 data-[state=active]:scale-[1.02] data-[state=active]:translate-x-0 data-[state=past-near]:opacity-78 data-[state=past-near]:scale-[0.992] data-[state=past-near]:-translate-x-1 data-[state=past]:opacity-48 data-[state=past]:scale-[0.98] data-[state=past]:-translate-x-2 data-[state=next-near]:opacity-66 data-[state=next-near]:scale-[0.988] data-[state=next-near]:translate-x-1.5 data-[state=next]:opacity-28 data-[state=next]:scale-[0.968] data-[state=next]:translate-x-3`}
+                className={`lyric-line group relative origin-left transition-all duration-500 ease-[var(--ease-apple)] will-change-transform py-2.5 text-[28px] font-bold tracking-tight antialiased text-white/22 ${isPauseDisplay ? 'flex w-full justify-center px-0 pr-0 opacity-40 scale-[0.99] translate-x-0 data-[state=active]:opacity-100 data-[state=active]:scale-[1.01] data-[state=active]:translate-x-0 data-[state=past-near]:opacity-72 data-[state=past-near]:scale-[0.99] data-[state=past-near]:translate-x-0 data-[state=past]:opacity-46 data-[state=past]:scale-[0.985] data-[state=past]:translate-x-0 data-[state=next-near]:opacity-62 data-[state=next-near]:scale-[0.99] data-[state=next-near]:translate-x-0 data-[state=next]:opacity-26 data-[state=next]:scale-[0.98] data-[state=next]:translate-x-0' : 'cursor-pointer pr-12 opacity-40 scale-[0.972] translate-x-0 data-[state=active]:opacity-100 data-[state=active]:scale-[1.02] data-[state=active]:translate-x-0 data-[state=past-near]:opacity-78 data-[state=past-near]:scale-[0.992] data-[state=past-near]:-translate-x-1 data-[state=past]:opacity-48 data-[state=past]:scale-[0.98] data-[state=past]:-translate-x-2 data-[state=next-near]:opacity-66 data-[state=next-near]:scale-[0.988] data-[state=next-near]:translate-x-1.5 data-[state=next]:opacity-28 data-[state=next]:scale-[0.968] data-[state=next]:translate-x-3'}`}
                 style={{ 
                   textRendering: 'optimizeLegibility', 
                   ['--lyric-progress' as string]: '0%',
@@ -838,42 +852,48 @@ const SyncedLyricsWithProgress = React.memo(
                   }
                 }}
               >
-                <div className={isPauseDisplay ? 'mx-auto flex w-28 flex-col items-center' : 'flex w-full flex-col items-start'}>
-                  <span className={`block transition-[filter] duration-300 [filter:drop-shadow(0_0_10px_rgba(255,255,255,0.2))] group-data-[state=active]:[filter:drop-shadow(0_0_18px_rgba(255,255,255,0.38))] ${isPauseDisplay ? 'text-center' : 'text-left'}`}>
-                    {displayText.split(/(\s+)/).map((word, wordIdx, arr) => {
-                      const offset = arr.slice(0, wordIdx).join('').length;
-                      return (
-                        <span key={wordIdx} className="inline-block whitespace-pre-wrap" data-word-index={wordIdx}>
-                          {Array.from(word).map((char, charIndex) => {
-                            if (/^\s+$/.test(char)) {
-                              return <span key={`${wordIdx}-${charIndex}`}>{char}</span>;
-                            }
+                <div className={isPauseDisplay ? 'flex w-28 flex-col items-center' : 'flex w-full flex-col items-start'}>
+                  {isPauseDisplay ? (
+                    <span className="note-gradient-text bg-[linear-gradient(90deg,rgba(255,255,255,0.28)_0%,rgba(255,255,255,0.74)_35%,rgba(255,255,255,1)_50%,rgba(255,255,255,0.74)_65%,rgba(255,255,255,0.28)_100%)] bg-[length:220%_100%] bg-clip-text text-center text-transparent">
+                      {displayText}
+                    </span>
+                  ) : (
+                    <span className="block text-left transition-[filter] duration-300 [filter:drop-shadow(0_0_10px_rgba(255,255,255,0.2))] group-data-[state=active]:[filter:drop-shadow(0_0_18px_rgba(255,255,255,0.38))]">
+                      {displayText.split(/(\s+)/).map((word, wordIdx, arr) => {
+                        const offset = arr.slice(0, wordIdx).join('').length;
+                        return (
+                          <span key={wordIdx} className="inline-block whitespace-pre-wrap" data-word-index={wordIdx}>
+                            {Array.from(word).map((char, charIndex) => {
+                              if (/^\s+$/.test(char)) {
+                                return <span key={`${wordIdx}-${charIndex}`}>{char}</span>;
+                              }
 
-                            const charAnimatedIndex = animatedIndex++;
-                            return (
-                              <span
-                                key={offset + charIndex}
-                                data-char-index={charAnimatedIndex}
-                                className="relative inline-block transition-all duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] [color:rgba(255,255,255,calc(0.2+var(--char-progress,0)*0.8))] [transform:translateY(calc(var(--char-progress,0)*-0.11em))_scale(calc(1+var(--char-progress,0)*0.022))] [filter:drop-shadow(0_0_calc(var(--char-progress,0)*12px)_rgba(255,255,255,calc(var(--char-progress,0)*0.24)))]"
-                                style={{ ['--char-progress' as string]: '0' }}
-                              >
-                                <span>{char}</span>
+                              const charAnimatedIndex = animatedIndex++;
+                              return (
                                 <span
-                                  aria-hidden="true"
-                                  data-char-fill
-                                  className="absolute inset-y-0 left-0 overflow-hidden whitespace-pre text-white/95 transition-opacity duration-150 [width:calc(var(--char-progress,0)*100%)] [text-shadow:0_0_calc(var(--char-progress,0)*12px)_rgba(255,255,255,calc(var(--char-progress,0)*0.2))] data-[fill-state=active]:opacity-0"
+                                  key={offset + charIndex}
+                                  data-char-index={charAnimatedIndex}
+                                  className="relative inline-block transition-all duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] [color:rgba(255,255,255,calc(0.2+var(--char-progress,0)*0.8))] [transform:translateY(calc(var(--char-progress,0)*-0.11em))_scale(calc(1+var(--char-progress,0)*0.022))] [filter:drop-shadow(0_0_calc(var(--char-progress,0)*12px)_rgba(255,255,255,calc(var(--char-progress,0)*0.24)))]"
+                                  style={{ ['--char-progress' as string]: '0' }}
                                 >
-                                  <span className="bg-[linear-gradient(90deg,rgba(255,255,255,0.5)_0%,rgba(255,255,255,0.92)_55%,rgba(255,255,255,1)_100%)] bg-clip-text text-transparent data-[fill-state=active]:bg-none data-[fill-state=active]:text-white">
-                                    {char}
+                                  <span>{char}</span>
+                                  <span
+                                    aria-hidden="true"
+                                    data-char-fill
+                                    className="absolute inset-y-0 left-0 overflow-hidden whitespace-pre text-white/95 transition-opacity duration-150 [width:calc(var(--char-progress,0)*100%)] [text-shadow:0_0_calc(var(--char-progress,0)*12px)_rgba(255,255,255,calc(var(--char-progress,0)*0.2))] data-[fill-state=active]:opacity-0"
+                                  >
+                                    <span className="bg-[linear-gradient(90deg,rgba(255,255,255,0.5)_0%,rgba(255,255,255,0.92)_55%,rgba(255,255,255,1)_100%)] bg-clip-text text-transparent data-[fill-state=active]:bg-none data-[fill-state=active]:text-white">
+                                      {char}
+                                    </span>
                                   </span>
                                 </span>
-                              </span>
-                            );
-                          })}
-                        </span>
-                      );
-                    })}
-                  </span>
+                              );
+                            })}
+                          </span>
+                        );
+                      })}
+                    </span>
+                  )}
                   {isPauseDisplay ? (
                     <div className="mt-3 h-[3px] w-28 overflow-hidden rounded-full bg-white/[0.08]">
                       <div 
@@ -1121,6 +1141,7 @@ export const LyricsPanel = React.memo(({
   const visible = forceOpen || open;
   const close = useLyricsStore((s) => s.close);
   const openAnimation = useFullscreenPanelStore((s) => s.openAnimation);
+  const closeAnimation = useFullscreenPanelStore((s) => s.closeAnimation);
   const track = usePlayerStore((s) => s.currentTrack);
   const visualizerFullscreen = useSettingsStore((s) => s.visualizerFullscreen);
   const { t } = useTranslation();
@@ -1161,7 +1182,7 @@ export const LyricsPanel = React.memo(({
 
   const artwork500 = art(track.artwork_url, 't500x500');
   const rootClassName = forceOpen
-    ? `fixed inset-0 z-[60] flex flex-col overflow-hidden bg-[#08080a] ${openAnimation === 'fromMiniPlayer' ? 'animate-fullscreen-from-player' : ''} ${panelClassName}`.trim()
+    ? `fixed inset-0 z-[60] flex flex-col overflow-hidden bg-[#08080a] ${openAnimation === 'fromMiniPlayer' ? 'animate-fullscreen-from-player' : ''} ${closeAnimation === 'toMiniPlayer' ? 'animate-fullscreen-to-player' : ''} ${panelClassName}`.trim()
     : 'fixed inset-0 z-[60] flex flex-col overflow-hidden animate-fade-in-up bg-[#08080a]';
 
   return (
@@ -1184,8 +1205,9 @@ export const LyricsPanel = React.memo(({
           onClick={() => {
             useLyricsStore.setState({ open: false });
             useFullscreenPanelStore.getState().setOpenAnimation('default');
-            useFullscreenPanelStore.getState().setTransitionDirection('none');
+            useFullscreenPanelStore.getState().setTransitionDirection('toArtwork');
             useFullscreenPanelStore.getState().setMode('artwork');
+            setTimeout(() => useFullscreenPanelStore.getState().setTransitionDirection('none'), 500);
             useArtworkStore.setState({ open: true });
           }}
           className="h-9 rounded-full px-3 inline-flex items-center gap-1.5 text-[12px] font-semibold text-white/45 hover:text-white/80 hover:bg-white/[0.08] transition-all duration-200 cursor-pointer outline-none"
@@ -1335,6 +1357,7 @@ export const ArtworkPanel = React.memo(({
   const setOpen = useArtworkStore((s) => s.setOpen);
   const openLyrics = useLyricsStore((s) => s.openPanel);
   const openAnimation = useFullscreenPanelStore((s) => s.openAnimation);
+  const closeAnimation = useFullscreenPanelStore((s) => s.closeAnimation);
   const track = usePlayerStore((s) => s.currentTrack);
   const visualizerFullscreen = useSettingsStore((s) => s.visualizerFullscreen);
   const colorRef = useArtworkColor(track?.artwork_url ?? null);
@@ -1352,7 +1375,7 @@ export const ArtworkPanel = React.memo(({
 
   const artwork500 = art(track.artwork_url, 't500x500');
   const rootClassName = forceOpen
-    ? `fixed inset-0 z-[60] flex flex-col overflow-hidden bg-[#08080a] ${openAnimation === 'fromMiniPlayer' ? 'animate-fullscreen-from-player' : ''} ${panelClassName}`.trim()
+    ? `fixed inset-0 z-[60] flex flex-col overflow-hidden bg-[#08080a] ${openAnimation === 'fromMiniPlayer' ? 'animate-fullscreen-from-player' : ''} ${closeAnimation === 'toMiniPlayer' ? 'animate-fullscreen-to-player' : ''} ${panelClassName}`.trim()
     : 'fixed inset-0 z-[60] flex flex-col overflow-hidden animate-fade-in-up bg-[#08080a]';
 
   return (
@@ -1416,8 +1439,10 @@ export const artworkPanelApi = {
 const FullscreenPanels = React.memo(() => {
   const mode = useFullscreenPanelStore((s) => s.mode);
   const transitionDirection = useFullscreenPanelStore((s) => s.transitionDirection);
+  const closeAnimation = useFullscreenPanelStore((s) => s.closeAnimation);
   const [artworkX, setArtworkX] = useState('0%');
   const [lyricsX, setLyricsX] = useState('100%');
+  const isSliding = transitionDirection !== 'none';
 
   useEffect(() => {
     if (transitionDirection === 'toLyrics') {
@@ -1445,6 +1470,10 @@ const FullscreenPanels = React.memo(() => {
   }, [mode, transitionDirection]);
 
   if (mode === 'none') return null;
+
+  if (!isSliding || closeAnimation !== 'none') {
+    return mode === 'artwork' ? <ArtworkPanel forceOpen /> : <LyricsPanel forceOpen />;
+  }
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden">

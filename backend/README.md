@@ -65,6 +65,27 @@ PORT=3000
 
 ## 3. Запуск
 
+### Самый простой локальный сценарий под Windows
+
+Если хочешь просто поднять локальный API для десктопа без ебли:
+
+1. Положи `SOUNDCLOUD_CLIENT_ID` и `SOUNDCLOUD_CLIENT_SECRET` в `.env`
+2. Запусти `start-local-api.bat`
+3. Открой десктопное приложение
+4. В приложении зайди в логин и выбери локальный сервер / свои ключи
+
+Если приложение уже установлено в `%LOCALAPPDATA%\soundcloud-desktop\soundcloud-desktop.exe`, можно просто запустить:
+
+```bat
+start-local-stack-and-app.bat
+```
+
+Этот скрипт:
+
+- поднимет Docker Desktop если он еще не запущен
+- стартанет локальный API + PostgreSQL
+- после этого откроет десктопное приложение
+
 ### Docker (рекомендуется)
 
 ```bash
@@ -98,6 +119,18 @@ pnpm build && pnpm start:prod  # production
 | `http://localhost:3000/health` | Health check |
 | `http://localhost:3000/api` | Swagger UI |
 | `http://localhost:3000/openapi.json` | OpenAPI-спецификация |
+
+---
+
+## 4.1. Как подключить сервер к SoundCloud Desktop
+
+1. Запусти API на `http://localhost:3000`
+2. Открой SoundCloud Desktop
+3. На экране логина выбери локальный сервер / custom API flow
+4. Если хочешь логиниться через свое приложение SoundCloud, вставь свой `Client ID` и `Client Secret`
+5. Авторизуйся как обычно
+
+Если все ок, приложение будет ходить не в удаленный API, а в твой локальный BFF.
 
 ---
 

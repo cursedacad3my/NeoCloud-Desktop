@@ -277,7 +277,6 @@
     "genreFilterStrictOff": "Flexible",
     "genreFilterHint": "Multi-select genres. In strict mode Wave keeps only selected genres.",
     "soundwaveHideLiked": "Hide liked tracks",
-    "soundwaveTrackVisual": "Track visual card",
     "soundwaveNowPlaying": "Now playing",
     "genreFilterAll": "All genres",
     "genreFilterSelected": "{{count}} selected",

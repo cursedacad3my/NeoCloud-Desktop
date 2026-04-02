@@ -168,6 +168,47 @@ body,
   animation: fullscreenFromPlayer 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+@keyframes fullscreenToPlayer {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(92px);
+  }
+}
+
+.animate-fullscreen-to-player {
+  animation: fullscreenToPlayer 0.46s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+@keyframes noteGradientFlow {
+  0% {
+    background-position: 200% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.animate-note-gradient {
+  animation: noteGradientFlow 2.6s linear infinite;
+}
+
+.note-gradient-text {
+  opacity: 0.46;
+  filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.14));
+  transition: opacity 0.3s var(--ease-apple), filter 0.3s var(--ease-apple);
+  animation-play-state: paused;
+}
+
+.lyric-line[data-state='active'] .note-gradient-text {
+  opacity: 1;
+  filter: drop-shadow(0 0 22px rgba(255, 255, 255, 0.48));
+  animation: noteGradientFlow 2.6s linear infinite;
+}
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }

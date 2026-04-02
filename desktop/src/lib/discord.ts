@@ -28,7 +28,7 @@ let lastHandledRpcAt = 0;
 const RPC_OPEN_EVENT = 'discord:open-track';
 const RPC_OPEN_DEDUP_MS = 900;
 const RPC_OPEN_FALLBACK_PORT = 58334;
-const RPC_BRIDGE_URL = `https://cdn.jsdelivr.net/gh/${GITHUB_OWNER}/${GITHUB_REPO}@main/desktop/public/rpc-open.html`;
+const RPC_BRIDGE_URL = `https://rawcdn.githack.com/${GITHUB_OWNER}/${GITHUB_REPO}/main/desktop/public/rpc-open.html`;
 let cachedRpcOpenPort: number | null = null;
 let rpcPortResolved = false;
 

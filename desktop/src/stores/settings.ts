@@ -156,7 +156,6 @@ export interface SettingsState {
   soundwaveGenreStrict: boolean;
   soundwaveSelectedGenres: string[];
   soundwaveHideLiked: boolean;
-  soundwaveTrackVisual: boolean;
   setAccentColor: (color: string) => void;
   setBgPrimary: (bg: string) => void;
   setThemePreset: (id: ThemePreset) => void;
@@ -220,7 +219,6 @@ export interface SettingsState {
   setSoundwaveGenreStrict: (v: boolean) => void;
   setSoundwaveSelectedGenres: (genres: string[]) => void;
   setSoundwaveHideLiked: (v: boolean) => void;
-  setSoundwaveTrackVisual: (v: boolean) => void;
   resetTheme: () => void;
 }
 
@@ -311,7 +309,6 @@ const DEFAULTS = {
   soundwaveGenreStrict: true,
   soundwaveSelectedGenres: [],
   soundwaveHideLiked: false,
-  soundwaveTrackVisual: true,
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -429,7 +426,6 @@ export const useSettingsStore = create<SettingsState>()(
       setSoundwaveGenreStrict: (soundwaveGenreStrict) => set({ soundwaveGenreStrict }),
       setSoundwaveSelectedGenres: (soundwaveSelectedGenres) => set({ soundwaveSelectedGenres }),
       setSoundwaveHideLiked: (soundwaveHideLiked) => set({ soundwaveHideLiked }),
-      setSoundwaveTrackVisual: (soundwaveTrackVisual) => set({ soundwaveTrackVisual }),
       resetTheme: () => set(DEFAULTS),
     }),
     {
@@ -532,7 +528,6 @@ export const useSettingsStore = create<SettingsState>()(
         soundwaveGenreStrict: s.soundwaveGenreStrict,
         soundwaveSelectedGenres: s.soundwaveSelectedGenres,
         soundwaveHideLiked: s.soundwaveHideLiked,
-        soundwaveTrackVisual: s.soundwaveTrackVisual,
       }),
     },
   ),

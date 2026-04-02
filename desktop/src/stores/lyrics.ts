@@ -3,14 +3,21 @@ import { create } from 'zustand';
 export type FullscreenPanelMode = 'none' | 'artwork' | 'lyrics';
 export type TransitionDirection = 'none' | 'toLyrics' | 'toArtwork';
 export type FullscreenOpenAnimation = 'default' | 'fromMiniPlayer';
+export type FullscreenCloseAnimation = 'none' | 'toMiniPlayer';
+
+const FULLSCREEN_CLOSE_DURATION_MS = 460;
+let fullscreenCloseTimer: ReturnType<typeof setTimeout> | null = null;
 
 interface FullscreenPanelState {
   mode: FullscreenPanelMode;
   transitionDirection: TransitionDirection;
   openAnimation: FullscreenOpenAnimation;
+  closeAnimation: FullscreenCloseAnimation;
   setMode: (mode: FullscreenPanelMode) => void;
   setTransitionDirection: (dir: TransitionDirection) => void;
   setOpenAnimation: (animation: FullscreenOpenAnimation) => void;
+  cancelCloseAnimation: () => void;
+  beginClose: () => void;
   close: () => void;
 }
 
@@ -32,10 +39,40 @@ export const useFullscreenPanelStore = create<FullscreenPanelState>()((set) => (
   mode: 'none',
   transitionDirection: 'none',
   openAnimation: 'default',
+  closeAnimation: 'none',
   setMode: (mode) => set({ mode }),
   setTransitionDirection: (dir) => set({ transitionDirection: dir }),
   setOpenAnimation: (animation) => set({ openAnimation: animation }),
-  close: () => set({ mode: 'none', transitionDirection: 'none', openAnimation: 'default' }),
+  cancelCloseAnimation: () => {
+    if (fullscreenCloseTimer) {
+      clearTimeout(fullscreenCloseTimer);
+      fullscreenCloseTimer = null;
+    }
+    set({ closeAnimation: 'none' });
+  },
+  beginClose: () => {
+    if (fullscreenCloseTimer) {
+      clearTimeout(fullscreenCloseTimer);
+      fullscreenCloseTimer = null;
+    }
+    set({ transitionDirection: 'none', closeAnimation: 'toMiniPlayer' });
+    fullscreenCloseTimer = setTimeout(() => {
+      set({
+        mode: 'none',
+        transitionDirection: 'none',
+        openAnimation: 'default',
+        closeAnimation: 'none',
+      });
+      fullscreenCloseTimer = null;
+    }, FULLSCREEN_CLOSE_DURATION_MS);
+  },
+  close: () => {
+    if (fullscreenCloseTimer) {
+      clearTimeout(fullscreenCloseTimer);
+      fullscreenCloseTimer = null;
+    }
+    set({ mode: 'none', transitionDirection: 'none', openAnimation: 'default', closeAnimation: 'none' });
+  },
 }));
 
 export const useLyricsStore = create<LyricsUIState>()((set) => ({
@@ -44,6 +81,7 @@ export const useLyricsStore = create<LyricsUIState>()((set) => ({
     set((s) => {
       const nextOpen = !s.open;
       if (nextOpen) {
+        useFullscreenPanelStore.getState().cancelCloseAnimation();
         useArtworkStore.setState({ open: false });
         useFullscreenPanelStore.getState().setOpenAnimation('default');
         useFullscreenPanelStore.getState().setTransitionDirection('toLyrics');
@@ -55,6 +93,7 @@ export const useLyricsStore = create<LyricsUIState>()((set) => ({
       return { open: nextOpen };
     }),
   openFromMiniPlayer: () => {
+    useFullscreenPanelStore.getState().cancelCloseAnimation();
     useArtworkStore.setState({ open: false });
     useFullscreenPanelStore.getState().setOpenAnimation('fromMiniPlayer');
     useFullscreenPanelStore.getState().setTransitionDirection('none');
@@ -62,6 +101,7 @@ export const useLyricsStore = create<LyricsUIState>()((set) => ({
     set({ open: true });
   },
   openPanel: () => {
+    useFullscreenPanelStore.getState().cancelCloseAnimation();
     useArtworkStore.setState({ open: false });
     useFullscreenPanelStore.getState().setOpenAnimation('default');
     useFullscreenPanelStore.getState().setTransitionDirection('toLyrics');
@@ -70,7 +110,7 @@ export const useLyricsStore = create<LyricsUIState>()((set) => ({
     set({ open: true });
   },
   close: () => {
-    useFullscreenPanelStore.getState().close();
+    useFullscreenPanelStore.getState().beginClose();
     set({ open: false });
   },
 }));
@@ -78,6 +118,7 @@ export const useLyricsStore = create<LyricsUIState>()((set) => ({
 export const useArtworkStore = create<ArtworkUIState>()((set) => ({
   open: false,
   openFromMiniPlayer: () => {
+    useFullscreenPanelStore.getState().cancelCloseAnimation();
     useLyricsStore.setState({ open: false });
     useFullscreenPanelStore.getState().setOpenAnimation('fromMiniPlayer');
     useFullscreenPanelStore.getState().setTransitionDirection('none');
@@ -86,13 +127,14 @@ export const useArtworkStore = create<ArtworkUIState>()((set) => ({
   },
   setOpen: (open) => {
     if (open) {
+      useFullscreenPanelStore.getState().cancelCloseAnimation();
       useLyricsStore.setState({ open: false });
       useFullscreenPanelStore.getState().setOpenAnimation('default');
       useFullscreenPanelStore.getState().setTransitionDirection('toArtwork');
       useFullscreenPanelStore.getState().setMode('artwork');
       setTimeout(() => useFullscreenPanelStore.getState().setTransitionDirection('none'), 500);
     } else if (useFullscreenPanelStore.getState().mode === 'artwork') {
-      useFullscreenPanelStore.getState().close();
+      useFullscreenPanelStore.getState().beginClose();
     }
 
     set({ open });

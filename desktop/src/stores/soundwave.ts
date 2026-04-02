@@ -1103,9 +1103,9 @@ const ratioByMode: Record<
   'favorite' | 'discover' | 'popular',
   { novel: number; heard: number; liked: number }
 > = {
-  discover: { novel: 0.86, heard: 0.14, liked: 0 },
-  favorite: { novel: 0.58, heard: 0.24, liked: 0.18 },
-  popular: { novel: 0.72, heard: 0.2, liked: 0.08 },
+  discover: { novel: 0.92, heard: 0.08, liked: 0 },
+  favorite: { novel: 0.68, heard: 0.2, liked: 0.12 },
+  popular: { novel: 0.84, heard: 0.14, liked: 0.02 },
 };
 
 const modeKey = (preset: SoundWavePreset | null): 'favorite' | 'discover' | 'popular' => {
@@ -1143,7 +1143,9 @@ const selectBalancedTracks = (
   const picked: RankedTrack[] = [];
   const pickedUrns = new Set<string>();
   const artistCounts = new Map<string, number>();
+  let likedPicked = 0;
   const maxPerArtist = mode === 'discover' ? 2 : 3;
+  const maxLiked = mode === 'favorite' ? Math.max(targetLiked, 2) : mode === 'popular' ? 1 : 0;
 
   const takeFrom = (pool: RankedTrack[], amount: number) => {
     if (amount <= 0) return;
@@ -1151,11 +1153,13 @@ const selectBalancedTracks = (
     for (const track of pool) {
       if (picked.length >= limit) return;
       if (pickedUrns.has(track.urn)) continue;
+      if (track._isLiked && likedPicked >= maxLiked) continue;
       const artist = artistKey(track);
       const artistCount = artistCounts.get(artist) || 0;
       if (artistCount >= maxPerArtist) continue;
       picked.push(track);
       pickedUrns.add(track.urn);
+      if (track._isLiked) likedPicked += 1;
       artistCounts.set(artist, artistCount + 1);
       added += 1;
       if (added >= amount) {
@@ -1172,11 +1176,13 @@ const selectBalancedTracks = (
   for (const track of fallbackPool) {
     if (picked.length >= limit) break;
     if (pickedUrns.has(track.urn)) continue;
+    if (track._isLiked && likedPicked >= maxLiked) continue;
     const artist = artistKey(track);
     const artistCount = artistCounts.get(artist) || 0;
     if (artistCount >= maxPerArtist + 1) continue;
     picked.push(track);
     pickedUrns.add(track.urn);
+    if (track._isLiked) likedPicked += 1;
     artistCounts.set(artist, artistCount + 1);
   }
 
@@ -1861,7 +1867,7 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
                   currentPreset?.mode === 'favorite'
                     ? 2.6
                     : currentPreset?.mode === 'popular'
-                      ? 0.4
+                      ? -2.4
                       : -4.8;
               }
               if (isHeard) {
@@ -1995,7 +2001,11 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
                 const languageSearchTracks = await fetchLanguageSearchTracks(
                   settings.preferredLanguage,
                 );
-                const fallbackSource = [...languageSearchTracks, ...explorePool, ...seedTracks]
+                const modeFallbackPool =
+                  currentPreset?.mode === 'favorite'
+                    ? [...seedTracks, ...explorePool]
+                    : [...explorePool, ...seedTracks];
+                const fallbackSource = [...languageSearchTracks, ...modeFallbackPool]
                   .filter(
                     (t) =>
                       isTrackPlayable(t) && !playedUrns.has(t.urn) && !dislikedUrns.includes(t.urn),
@@ -2015,7 +2025,8 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
                       : -1;
                     return {
                       ...track,
-                      _swScore: 4.5 + Math.random() * 1.2,
+                      _swScore:
+                        (currentPreset?.mode === 'favorite' ? 4.8 : 5.6) + Math.random() * 1.2,
                       _isLiked: likedUrns.has(track.urn) || Boolean(track.user_favorite),
                       _isHeard: heardRank >= 0,
                       _heardRank: heardRank,
@@ -2222,8 +2233,7 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
       // Fallback to legacy algorithm...
 
       // Pick 5 random seeds from user's likes
-      const seedBase =
-        currentPreset?.mode === 'discover' && explorePool.length > 0 ? explorePool : seedTracks;
+      const seedBase = seedTracks.length > 0 ? seedTracks : explorePool;
       if (seedBase.length === 0) {
         return [];
       }
@@ -2283,7 +2293,8 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
         } else {
           if (genre && genreWeights[genre]) score += genreWeights[genre] * 5;
           if (artist && artistWeights[artist]) score += artistWeights[artist] * 3;
-          if (currentPreset?.mode !== 'favorite' && isLiked) score -= 8;
+          if (currentPreset?.mode === 'popular' && isLiked) score -= 12;
+          else if (currentPreset?.mode !== 'favorite' && isLiked) score -= 8;
         }
 
         if (isHeard) {
@@ -2357,7 +2368,11 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
           updateStartup(95, 'language');
         } else {
           const languageSearchTracks = await fetchLanguageSearchTracks(settings.preferredLanguage);
-          const fallbackSource = [...languageSearchTracks, ...explorePool, ...seedTracks]
+          const modeFallbackPool =
+            currentPreset?.mode === 'favorite'
+              ? [...seedTracks, ...explorePool]
+              : [...explorePool, ...seedTracks];
+          const fallbackSource = [...languageSearchTracks, ...modeFallbackPool]
             .filter(
               (t) => isTrackPlayable(t) && !playedUrns.has(t.urn) && !dislikedUrns.includes(t.urn),
             )
@@ -2373,7 +2388,7 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
                 : -1;
               return {
                 ...track,
-                _swScore: 4.2 + Math.random() * 1.1,
+                _swScore: (currentPreset?.mode === 'favorite' ? 4.4 : 5.3) + Math.random() * 1.1,
                 _isLiked: likedUrns.has(track.urn) || Boolean(track.user_favorite),
                 _isHeard: heardRank >= 0,
                 _heardRank: heardRank,
@@ -2471,7 +2486,7 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
                 : -1;
               return {
                 ...track,
-                _swScore: 4.2 + Math.random() * 1.1,
+                    _swScore: (currentPreset?.mode === 'favorite' ? 4.5 : 5.4) + Math.random() * 1.1,
                 _isLiked: likedUrns.has(track.urn) || Boolean(track.user_favorite),
                 _isHeard: heardRank >= 0,
                 _heardRank: heardRank,

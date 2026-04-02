@@ -168,11 +168,9 @@ export const SoundWaveHero: React.FC = () => {
   const soundwaveGenreStrict = useSettingsStore((s) => s.soundwaveGenreStrict);
   const soundwaveSelectedGenres = useSettingsStore((s) => s.soundwaveSelectedGenres);
   const soundwaveHideLiked = useSettingsStore((s) => s.soundwaveHideLiked);
-  const soundwaveTrackVisual = useSettingsStore((s) => s.soundwaveTrackVisual);
   const setSoundwaveGenreStrict = useSettingsStore((s) => s.setSoundwaveGenreStrict);
   const setSoundwaveSelectedGenres = useSettingsStore((s) => s.setSoundwaveSelectedGenres);
   const setSoundwaveHideLiked = useSettingsStore((s) => s.setSoundwaveHideLiked);
-  const setSoundwaveTrackVisual = useSettingsStore((s) => s.setSoundwaveTrackVisual);
   const selectedPreset = getPresetByKey(selectedPresetKey);
 
   // Prefetching logic
@@ -1227,21 +1225,6 @@ export const SoundWaveHero: React.FC = () => {
                     }`}
                   >
                     {soundwaveHideLiked ? t('eq.on') : t('eq.off')}
-                  </button>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-white/55">{t('settings.soundwaveTrackVisual')}</span>
-                  <button
-                    type="button"
-                    onClick={() => setSoundwaveTrackVisual(!soundwaveTrackVisual)}
-                    className={`px-3 py-1 rounded-full text-[10px] font-bold transition-all ${
-                      soundwaveTrackVisual
-                        ? 'bg-accent hover:bg-accent-hover text-accent-contrast shadow-[0_0_16px_var(--color-accent-glow)]'
-                        : 'bg-white/10 text-white/50 hover:text-white'
-                    }`}
-                  >
-                    {soundwaveTrackVisual ? t('eq.on') : t('eq.off')}
                   </button>
                 </div>
 
