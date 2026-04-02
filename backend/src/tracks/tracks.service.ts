@@ -16,6 +16,7 @@ import type {
 @Injectable()
 export class TracksService {
   private readonly logger = new Logger(TracksService.name);
+  private hqOauthDisabledUntil = 0;
 
   constructor(
     private readonly sc: SoundcloudService,
@@ -109,7 +110,6 @@ export class TracksService {
         'hls_mp3_128_url',
       ];
 
-      // Build ordered list: requested format first, then fallbacks
       const candidates: { key: keyof ScStreams; url: string }[] = [];
       const requestedUrl = streams[urlKey] as string | undefined;
       if (requestedUrl) {
@@ -125,6 +125,12 @@ export class TracksService {
 
       for (const { key, url } of candidates) {
         const fmt = (key as string).replace('_url', '');
+        
+        // Восстановлено: Проверка блокировки HQ
+        if (fmt === 'hls_aac_160' && Date.now() < this.hqOauthDisabledUntil) {
+          continue;
+        }
+
         const isHls = fmt.startsWith('hls_');
         const quality = this.qualityFromStreamKey(key);
 
@@ -141,7 +147,16 @@ export class TracksService {
           const result = await this.proxyStream(token, url, range);
           return this.withStreamQuality(result, quality);
         } catch (err: unknown) {
+          // Восстановлено: Обработка 401 ошибки для HQ формата
+          const status = this.extractHttpStatus(err);
           const message = err instanceof Error ? err.message : String(err);
+          
+          if (fmt === 'hls_aac_160' && status === 401) {
+            this.hqOauthDisabledUntil = Date.now() + 10 * 60 * 1000;
+            this.logger.warn('Stream format hls_aac_160 returned 401, temporarily disabling OAuth HQ stream');
+            continue;
+          }
+          
           this.logger.warn(`Stream format ${fmt} failed: ${message}, trying next...`);
         }
       }
@@ -175,6 +190,16 @@ export class TracksService {
     return 'audio/mpeg';
   }
 
+  // Восстановлено: Метод извлечения HTTP статуса
+  private extractHttpStatus(err: unknown): number | null {
+    if (!err || typeof err !== 'object') return null;
+    const maybeStatus = (err as { status?: unknown }).status;
+    if (typeof maybeStatus === 'number') return maybeStatus;
+
+    const responseStatus = (err as { response?: { status?: unknown } }).response?.status;
+    return typeof responseStatus === 'number' ? responseStatus : null;
+  }
+
   async getCookieStream(
     trackUrn: string,
   ): Promise<{ stream: Readable; headers: Record<string, string> } | null> {
@@ -191,10 +216,6 @@ export class TracksService {
     }
   }
 
-  /**
-   * Fallback: resolve stream via SoundCloud public API (no OAuth).
-   * Used when the authenticated /streams endpoint fails or returns empty.
-   */
   async getPublicStream(
     trackUrn: string,
     format?: string,

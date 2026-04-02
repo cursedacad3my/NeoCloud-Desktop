@@ -45,17 +45,19 @@ export const FloatingComments: React.FC<{ mode?: FloatingCommentsMode }> = ({ mo
   const currentTrack = usePlayerStore((s) => s.currentTrack);
   const trackUrn = currentTrack?.urn;
 
+  if (!enabled || !trackUrn) return null;
+
   const { data: comments } = useQuery({
     queryKey: ['comments', trackUrn],
     queryFn: async () => {
       const res = await api<{ collection: Comment[] }>(`/tracks/${encodeURIComponent(trackUrn!)}/comments?limit=200`);
       return res.collection || [];
     },
-    enabled: !!trackUrn && enabled,
+    enabled: true,
     staleTime: 60 * 60 * 1000,
   });
 
-  if (!enabled || !trackUrn || !comments) return null;
+  if (!comments) return null;
   return <FloatingCommentsInner comments={comments} mode={mode} />;
 };
 

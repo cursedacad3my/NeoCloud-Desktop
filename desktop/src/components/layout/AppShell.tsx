@@ -6,10 +6,10 @@ import { getCurrentTime, getDuration, handlePrev, seek } from '../../lib/audio';
 import { getWallpaperUrl } from '../../lib/cache';
 import { art } from '../../lib/formatters';
 import { useIsMobile } from '../../lib/hooks/useIsMobile';
-import { useArtworkStore, useLyricsStore } from '../../stores/lyrics';
+import { useArtworkStore, useFullscreenPanelStore, useLyricsStore } from '../../stores/lyrics';
 import { usePlayerStore } from '../../stores/player';
 import { useSettingsStore } from '../../stores/settings';
-import { ArtworkPanel, LyricsPanel } from '../music/LyricsPanel';
+import { FullscreenPanels } from '../music/LyricsPanel';
 import { QueuePanel } from '../music/QueuePanel';
 import { MobileNav } from './MobileNav';
 import { NowPlayingBar } from './NowPlayingBar';
@@ -234,9 +234,8 @@ export const AppShell = React.memo(() => {
   const onQueueClose = useCallback(() => setQueueOpen(false), []);
   const navigate = useNavigate();
 
-  const isLyricsOpen = useLyricsStore((s) => s.open);
-  const isArtworkOpen = useArtworkStore((s) => s.open);
-  const isFullscreen = isLyricsOpen || isArtworkOpen;
+  const fullscreenMode = useFullscreenPanelStore((s) => s.mode);
+  const isFullscreen = fullscreenMode !== 'none';
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -321,7 +320,11 @@ export const AppShell = React.memo(() => {
             setKbOpen(false);
             break;
           }
-          if (useLyricsStore.getState().open) useLyricsStore.getState().close();
+          if (useLyricsStore.getState().open) {
+            useLyricsStore.getState().close();
+          } else if (useArtworkStore.getState().open) {
+            useArtworkStore.getState().setOpen(false);
+          }
           else if (queueOpen) setQueueOpen(false);
           break;
       }
@@ -352,8 +355,7 @@ export const AppShell = React.memo(() => {
         {isMobile && <MobileNav />}
       </div>
       <QueuePanel open={queueOpen} onClose={onQueueClose} />
-      <LyricsPanel />
-      <ArtworkPanel />
+      <FullscreenPanels />
       <KeybindingsDialog open={kbOpen} onOpenChange={setKbOpen} />
       <HardwareAccelSync />
       <FpsCounter />

@@ -328,9 +328,9 @@ export function useLikedTracks(limit = 30) {
   }, [tracks]);
 
   useEffect(() => {
-    if (!query.data) return;
-    void rememberLikedTracks(tracks);
-  }, [query.data, tracks]);
+    if (tracks.length === 0) return;
+    void rememberTracks(tracks);
+  }, [tracks]);
 
   return { tracks, ...query };
 }

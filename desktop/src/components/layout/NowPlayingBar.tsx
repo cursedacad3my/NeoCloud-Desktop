@@ -746,9 +746,10 @@ const QueueBtn = React.memo(({ onClick, active }: { onClick: () => void; active:
 
 const LyricsBtn = React.memo(() => {
   const open = useLyricsStore((s) => s.open);
-  const toggle = useLyricsStore((s) => s.toggle);
+  const close = useLyricsStore((s) => s.close);
+  const openFromMiniPlayer = useLyricsStore((s) => s.openFromMiniPlayer);
   return (
-    <button type="button" onClick={toggle} className={btnClass(open, 'sm')}>
+    <button type="button" onClick={() => (open ? close() : openFromMiniPlayer())} className={btnClass(open, 'sm')}>
       <MicVocal size={16} />
     </button>
   );
@@ -782,10 +783,10 @@ const TrackInfo = React.memo(() => {
 
   return (
     <div className="flex items-center gap-3.5 w-[280px] min-w-0">
-      <div
-        className="relative w-14 h-14 rounded-[10px] shrink-0 overflow-hidden cursor-pointer shadow-xl shadow-black/40 ring-1 ring-white/[0.06] hover:ring-white/[0.12] transition-all duration-200 group/art"
-        onClick={() => artworkPanelApi.open()}
-      >
+        <div
+          className="relative w-14 h-14 rounded-[10px] shrink-0 overflow-hidden cursor-pointer shadow-xl shadow-black/40 ring-1 ring-white/[0.06] hover:ring-white/[0.12] transition-all duration-200 group/art"
+          onClick={() => artworkPanelApi.openFromMiniPlayer()}
+        >
         {artworkSmall ? (
           <img src={artworkSmall} alt="" className="w-full h-full object-cover" />
         ) : (
@@ -864,7 +865,6 @@ const BackgroundGlow = React.memo(() => {
 /* ── Playbar Visualizer ──────────────────────────────────────── */
 
 const PlaybarVisualizer = React.memo(() => {
-  const w = useSettingsStore((s) => s.visualizerWidth);
   const h = useSettingsStore((s) => s.visualizerHeight);
   const op = useSettingsStore((s) => s.visualizerOpacity);
   const fade = useSettingsStore((s) => s.visualizerFade);
@@ -874,9 +874,9 @@ const PlaybarVisualizer = React.memo(() => {
       className="absolute pointer-events-none z-[5] overflow-visible"
       style={{
         bottom: '100%',
-        width: `${w}%`,
+        width: '100%',
         height: `${h}px`,
-        left: `${(100 - w) / 2}%`,
+        left: '0%',
         opacity: op / 100,
         maskImage: `linear-gradient(to top, black ${100 - fade}%, transparent 100%)`,
         WebkitMaskImage: `linear-gradient(to top, black ${100 - fade}%, transparent 100%)`,

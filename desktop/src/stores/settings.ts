@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { tauriStorage } from '../lib/tauri-storage';
 
-const ENCODED_QDRANT_URL = 'aHR0cHM6Ly9hZDkzOTEzOS00ODE5LTRkM2EtYjJhMS0xMTQ3YTAzZjU5YWMuc2EtZWFzdC0xLTAuYXdzLmNvdXJkLnFkcmFudC5pby8=';
+const ENCODED_QDRANT_URL = 'aHR0cHM6Ly9hZDkzOTEzOS00ODE5LTRkM2EtYjJhMS0xMTQ3YTAzZjU5YWMuc2EtZWFzdC0xLTAuYXdzLmNsb3VkLnFkcmFudC5pby8=';
 const ENCODED_QDRANT_KEY =
   'ZXlKaGJHY2lPaUpJVXpJMU5pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SmhZMk5sYzNNaU9pSnRJbjAuZ3ZTVlZEbFNEMms1OWxDb2ktSms2bFQtUUVPXzRYbXBVQmJ6eDNEdDRTOA==';
 const ENCODED_QDRANT_COLLECTION = 'c3dfMTI=';
@@ -44,6 +44,8 @@ const decodeQdrantKeyFromStorage = (value: string): string => {
 const PREDEFINED_QDRANT_URL = decodeBase64(ENCODED_QDRANT_URL);
 const PREDEFINED_QDRANT_KEY = decodeBase64(ENCODED_QDRANT_KEY);
 const PREDEFINED_QDRANT_COLLECTION = decodeBase64(ENCODED_QDRANT_COLLECTION);
+
+const normalizeQdrantUrl = (value: string): string => value.trim().replace('aws.courd.qdrant.io', 'aws.cloud.qdrant.io');
 
 export type ThemePreset = 'soundcloud' | 'dark' | 'neon' | 'forest' | 'crimson' | 'custom';
 export type DiscordRpcMode = 'text' | 'track' | 'artist' | 'activity';
@@ -107,6 +109,8 @@ export interface SettingsState {
   spotifyClientId: string;
   youtubeClientId: string;
   youtubeClientSecret: string;
+  soundcloudClientId: string;
+  soundcloudClientSecret: string;
   apiMode: ApiMode;
   customApiKey: string;
   sidebarCollapsed: boolean;
@@ -169,6 +173,8 @@ export interface SettingsState {
   setSpotifyClientId: (id: string) => void;
   setYoutubeClientId: (id: string) => void;
   setYoutubeClientSecret: (secret: string) => void;
+  setSoundcloudClientId: (id: string) => void;
+  setSoundcloudClientSecret: (secret: string) => void;
   setApiMode: (mode: ApiMode) => void;
   setCustomApiKey: (key: string) => void;
   setCrossfadeEnabled: (v: boolean) => void;
@@ -220,7 +226,7 @@ export interface SettingsState {
 
 const DEFAULT_EQ_GAINS = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
-const ENV_QDRANT_URL = import.meta.env.VITE_QDRANT_URL?.trim() || PREDEFINED_QDRANT_URL;
+const ENV_QDRANT_URL = normalizeQdrantUrl(import.meta.env.VITE_QDRANT_URL?.trim() || PREDEFINED_QDRANT_URL);
 const ENV_QDRANT_KEY = import.meta.env.VITE_QDRANT_API_KEY?.trim() || PREDEFINED_QDRANT_KEY;
 const ENV_QDRANT_COLLECTION = import.meta.env.VITE_QDRANT_COLLECTION?.trim() || PREDEFINED_QDRANT_COLLECTION;
 const ENV_QDRANT_ENABLED_RAW = import.meta.env.VITE_QDRANT_ENABLED;
@@ -258,6 +264,8 @@ const DEFAULTS = {
   spotifyClientId: '',
   youtubeClientId: '',
   youtubeClientSecret: '',
+  soundcloudClientId: '',
+  soundcloudClientSecret: '',
   apiMode: 'auto' as ApiMode,
   customApiKey: '',
   crossfadeEnabled: false,
@@ -287,10 +295,10 @@ const DEFAULTS = {
   visualizerXOffset: 0,
   visualizerYOffset: 0,
   visualizerOpacity: 100,
-  visualizerSmoothing: 30,
+  visualizerSmoothing: 60,
   visualizerMirror: false,
   visualizerFade: 0,
-  visualizerBars: 56,
+  visualizerBars: 32,
   lowPerformanceMode: false,
   targetFramerate: 60,
   unlockFramerate: false,
@@ -349,6 +357,8 @@ export const useSettingsStore = create<SettingsState>()(
       setSpotifyClientId: (spotifyClientId) => set({ spotifyClientId }),
       setYoutubeClientId: (youtubeClientId) => set({ youtubeClientId }),
       setYoutubeClientSecret: (youtubeClientSecret) => set({ youtubeClientSecret }),
+      setSoundcloudClientId: (soundcloudClientId) => set({ soundcloudClientId }),
+      setSoundcloudClientSecret: (soundcloudClientSecret) => set({ soundcloudClientSecret }),
       setApiMode: (apiMode) => set({ apiMode }),
       setCustomApiKey: (customApiKey) => set({ customApiKey }),
       setCrossfadeEnabled: (crossfadeEnabled) => set({ crossfadeEnabled }),
@@ -360,7 +370,7 @@ export const useSettingsStore = create<SettingsState>()(
       setDiscordRpcShowButton: (discordRpcShowButton) => set({ discordRpcShowButton }),
       setDiscordRpcButtonMode: (discordRpcButtonMode) => set({ discordRpcButtonMode }),
       setQdrantEnabled: (qdrantEnabled) => set({ qdrantEnabled }),
-      setQdrantUrl: (qdrantUrl) => set({ qdrantUrl }),
+      setQdrantUrl: (qdrantUrl) => set({ qdrantUrl: normalizeQdrantUrl(qdrantUrl) }),
       setQdrantKey: (qdrantKey) => set({ qdrantKey: qdrantKey.trim() }),
       setQdrantCollection: (qdrantCollection) => set({ qdrantCollection }),
       setRegionalTrendSeed: (regionalTrendSeed) => set({ regionalTrendSeed }),
@@ -434,9 +444,11 @@ export const useSettingsStore = create<SettingsState>()(
         const normalizedKey = decodedKey.trim();
         const qdrantKey =
           normalizedKey && normalizedKey !== ENV_QDRANT_KEY ? normalizedKey : DEFAULTS.qdrantKey;
+        const qdrantUrl = normalizeQdrantUrl((state.qdrantUrl as string) || DEFAULTS.qdrantUrl);
         return {
           ...DEFAULTS,
           ...state,
+          qdrantUrl,
           qdrantKey,
         };
       },
@@ -448,9 +460,11 @@ export const useSettingsStore = create<SettingsState>()(
         const normalizedKey = decodedKey.trim();
         const qdrantKey =
           normalizedKey && normalizedKey !== ENV_QDRANT_KEY ? normalizedKey : DEFAULTS.qdrantKey;
+        const qdrantUrl = normalizeQdrantUrl((state.qdrantUrl as string) || currentState.qdrantUrl);
         return {
           ...currentState,
           ...state,
+          qdrantUrl,
           qdrantKey,
         };
       },
@@ -470,6 +484,8 @@ export const useSettingsStore = create<SettingsState>()(
         spotifyClientId: s.spotifyClientId,
         youtubeClientId: s.youtubeClientId,
         youtubeClientSecret: s.youtubeClientSecret,
+        soundcloudClientId: s.soundcloudClientId,
+        soundcloudClientSecret: s.soundcloudClientSecret,
         apiMode: s.apiMode,
         customApiKey: s.customApiKey,
         sidebarCollapsed: s.sidebarCollapsed,

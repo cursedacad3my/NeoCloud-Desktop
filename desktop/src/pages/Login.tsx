@@ -3,7 +3,7 @@ import { isTauri } from '@tauri-apps/api/core';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../lib/api';
-import { DEFAULT_API_BASE, getApiBase } from '../lib/constants';
+import { DEFAULT_API_BASE, LOCAL_API_BASE, getApiBase } from '../lib/constants';
 import { Check, ClipboardCopy, Disc3 } from '../lib/icons';
 import { queryClient } from '../main';
 import { useAuthStore } from '../stores/auth';
@@ -23,14 +23,17 @@ export function Login() {
   const setSession = useAuthStore((s) => s.setSession);
   const fetchUser = useAuthStore((s) => s.fetchUser);
   const apiMode = useSettingsStore((s) => s.apiMode);
-  const customApiKey = useSettingsStore((s) => s.customApiKey);
+  const soundcloudClientId = useSettingsStore((s) => s.soundcloudClientId);
+  const soundcloudClientSecret = useSettingsStore((s) => s.soundcloudClientSecret);
   const setApiMode = useSettingsStore((s) => s.setApiMode);
-  const setCustomApiKey = useSettingsStore((s) => s.setCustomApiKey);
+  const setSoundcloudClientId = useSettingsStore((s) => s.setSoundcloudClientId);
+  const setSoundcloudClientSecret = useSettingsStore((s) => s.setSoundcloudClientSecret);
   const [loading, setLoading] = useState(false);
   const [authUrl, setAuthUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const canUseCustomApi = apiMode === 'auto' || Boolean(customApiKey.trim());
+  const hasCredentials = soundcloudClientId.trim() && soundcloudClientSecret.trim();
+  const canUseCustomApi = apiMode === 'auto' || Boolean(hasCredentials);
 
   useEffect(() => {
     return () => {
@@ -42,6 +45,21 @@ export function Login() {
     if (pollRef.current) clearTimeout(pollRef.current);
     setLoading(true);
     try {
+      if (apiMode === 'custom' && hasCredentials) {
+        await api('/auth/credentials', {
+          method: 'POST',
+          body: JSON.stringify({
+            clientId: soundcloudClientId.trim(),
+            clientSecret: soundcloudClientSecret.trim(),
+            redirectUri: 'http://localhost:3000/auth/callback',
+          }),
+        });
+      } else {
+        await api('/auth/credentials/clear', {
+          method: 'POST',
+        });
+      }
+
       const { url, sessionId } = await api<LoginResponse>('/auth/login');
       setAuthUrl(url);
       if (isTauri()) {
@@ -128,22 +146,37 @@ export function Login() {
               {t('settings.currentApiServer')}: {getApiBase()}
             </p>
             {apiMode === 'custom' ? (
-              <>
-                <input
-                  type="text"
-                  value={customApiKey}
-                  onChange={(e) => setCustomApiKey(e.target.value)}
-                  placeholder="SoundCloud Client ID"
-                  className="w-full rounded-2xl border border-white/[0.06] bg-white/[0.04] px-4 py-3 text-[13px] text-white/85 placeholder:text-white/20 outline-none transition-all focus:border-white/[0.12] focus:bg-white/[0.06]"
-                />
-                {!canUseCustomApi && (
-                  <p className="text-[11px] text-red-300/80">API Key is required</p>
-                )}
-              </>
+              <p className="text-[11px] text-white/28">{LOCAL_API_BASE}</p>
             ) : (
               <p className="text-[11px] text-white/28">{DEFAULT_API_BASE}</p>
             )}
           </div>
+
+          {apiMode === 'custom' ? (
+            <div className="space-y-1.5">
+              <p className="text-[11px] font-medium text-white/42">OAuth Credentials</p>
+              <input
+                type="text"
+                value={soundcloudClientId}
+                onChange={(e) => setSoundcloudClientId(e.target.value)}
+                placeholder="Client ID"
+                className="w-full rounded-2xl border border-white/[0.06] bg-white/[0.04] px-4 py-3 text-[13px] text-white/85 placeholder:text-white/20 outline-none transition-all focus:border-white/[0.12] focus:bg-white/[0.06]"
+              />
+              <input
+                type="password"
+                value={soundcloudClientSecret}
+                onChange={(e) => setSoundcloudClientSecret(e.target.value)}
+                placeholder="Client Secret"
+                className="w-full rounded-2xl border border-white/[0.06] bg-white/[0.04] px-4 py-3 text-[13px] text-white/85 placeholder:text-white/20 outline-none transition-all focus:border-white/[0.12] focus:bg-white/[0.06]"
+              />
+              {hasCredentials && (
+                <p className="text-[11px] text-green-400/70">Custom credentials configured</p>
+              )}
+              {!hasCredentials && (
+                <p className="text-[11px] text-red-300/80">Client ID and Client Secret are required</p>
+              )}
+            </div>
+          ) : null}
         </div>
 
         {loading ? (

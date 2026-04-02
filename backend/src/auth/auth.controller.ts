@@ -1,5 +1,5 @@
-import { Controller, Get, Header, Headers, HttpCode, Post, Query } from '@nestjs/common';
-import { ApiHeader, ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { Controller, Get, Header, Headers, HttpCode, Post, Query, Body } from '@nestjs/common';
+import { ApiHeader, ApiOkResponse, ApiOperation, ApiQuery, ApiTags, ApiBody } from '@nestjs/swagger';
 import { AuthService } from './auth.service.js';
 import { renderCallbackPage } from './callback-page.js';
 import {
@@ -7,12 +7,41 @@ import {
   LogoutResponseDto,
   RefreshResponseDto,
   SessionResponseDto,
+  SetCredentialsDto,
 } from './dto/auth-response.dto.js';
 
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
+
+  @Post('credentials')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Set custom OAuth credentials for this session' })
+  @ApiBody({ type: SetCredentialsDto })
+  @ApiHeader({ name: 'x-session-id', required: false })
+  @ApiOkResponse({ description: 'Credentials set successfully' })
+  async setCredentials(
+    @Headers('x-session-id') sessionId: string | undefined,
+    @Body() body: SetCredentialsDto,
+  ) {
+    await this.authService.setCustomCredentials(sessionId, {
+      clientId: body.clientId,
+      clientSecret: body.clientSecret,
+      redirectUri: body.redirectUri || 'http://localhost:3000/auth/callback',
+    });
+    return { success: true };
+  }
+
+  @Post('credentials/clear')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Clear custom OAuth credentials for this session' })
+  @ApiHeader({ name: 'x-session-id', required: false })
+  @ApiOkResponse({ description: 'Credentials cleared successfully' })
+  clearCredentials(@Headers('x-session-id') sessionId: string | undefined) {
+    this.authService.clearCustomCredentials(sessionId);
+    return { success: true };
+  }
 
   @Get('login')
   @ApiOperation({ summary: 'Initiate OAuth 2.1 login flow with PKCE' })

@@ -672,6 +672,7 @@ const ThemeSection = React.memo(function ThemeSection() {
 
 interface AudioSink {
   name: string;
+  display_name: string;
   description: string;
   is_default: boolean;
 }
@@ -684,18 +685,26 @@ const AudioDeviceSection = React.memo(function AudioDeviceSection() {
   const sinkOptions = React.useMemo(() => {
     const totalByLabel = new Map<string, number>();
     for (const sink of sinks) {
-      const base = (sink.description || sink.name || '').trim() || t('settings.audioDeviceDefault');
-      totalByLabel.set(base, (totalByLabel.get(base) || 0) + 1);
+      const primary = (sink.display_name || sink.description || sink.name || '').trim();
+      const secondary = (sink.description || '').trim();
+      const base =
+        primary && secondary && secondary !== primary ? `${primary} - ${secondary}` : primary;
+      const normalizedBase = base || t('settings.audioDeviceDefault');
+      totalByLabel.set(normalizedBase, (totalByLabel.get(normalizedBase) || 0) + 1);
     }
 
     const seenByLabel = new Map<string, number>();
     return sinks.map((sink) => {
-      const base = (sink.description || sink.name || '').trim() || t('settings.audioDeviceDefault');
-      const seen = (seenByLabel.get(base) || 0) + 1;
-      seenByLabel.set(base, seen);
+      const primary = (sink.display_name || sink.description || sink.name || '').trim();
+      const secondary = (sink.description || '').trim();
+      const base =
+        primary && secondary && secondary !== primary ? `${primary} - ${secondary}` : primary;
+      const normalizedBase = base || t('settings.audioDeviceDefault');
+      const seen = (seenByLabel.get(normalizedBase) || 0) + 1;
+      seenByLabel.set(normalizedBase, seen);
 
-      const total = totalByLabel.get(base) || 1;
-      const label = total > 1 ? `${base} (${seen})` : base;
+      const total = totalByLabel.get(normalizedBase) || 1;
+      const label = total > 1 ? `${normalizedBase} (${seen})` : normalizedBase;
       return { sink, label };
     });
   }, [sinks, t]);
@@ -1448,14 +1457,12 @@ const VisualizerSection = React.memo(function VisualizerSection() {
   const fullscreen   = useSettingsStore((s) => s.visualizerFullscreen);
   const themeColor   = useSettingsStore((s) => s.visualizerThemeColor);
   const mirror       = useSettingsStore((s) => s.visualizerMirror);
-  const width        = useSettingsStore((s) => s.visualizerWidth);
   const height       = useSettingsStore((s) => s.visualizerHeight);
   const scale        = useSettingsStore((s) => s.visualizerScale);
   const opacity      = useSettingsStore((s) => s.visualizerOpacity);
   const smoothing    = useSettingsStore((s) => s.visualizerSmoothing);
   const fade         = useSettingsStore((s) => s.visualizerFade);
   const bars         = useSettingsStore((s) => s.visualizerBars);
-  const xOffset      = useSettingsStore((s) => s.visualizerXOffset);
   const yOffset      = useSettingsStore((s) => s.visualizerYOffset);
   const isOff = style === 'Off';
 
@@ -1518,13 +1525,6 @@ const VisualizerSection = React.memo(function VisualizerSection() {
               <input type="checkbox" checked={mirror} onChange={(e) => useSettingsStore.getState().setVisualizerMirror(e.target.checked)} className="w-4 h-4 accent-[var(--color-accent)] cursor-pointer" />
             </div>
 
-            <div className="space-y-1 pt-1">
-              <div className="flex items-center justify-between">
-                <label className="text-[13px] text-white/60">{t('visualizer.width', 'Width')}</label>
-                <span className="text-[12px] text-white/40 tabular-nums">{width}%</span>
-              </div>
-              <input type="range" min={20} max={100} step={5} value={width} onChange={(e) => useSettingsStore.getState().setVisualizerWidth(Number(e.target.value))} className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[var(--color-accent)]" />
-            </div>
             <div className="space-y-1">
               <div className="flex items-center justify-between">
                 <label className="text-[13px] text-white/60">{t('visualizer.height', 'Height')}</label>
@@ -1566,13 +1566,6 @@ const VisualizerSection = React.memo(function VisualizerSection() {
                 <span className="text-[12px] text-white/40 tabular-nums">{bars}</span>
               </div>
               <input type="range" min={8} max={128} step={4} value={bars} onChange={(e) => useSettingsStore.getState().setVisualizerBars(Number(e.target.value))} className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[var(--color-accent)]" />
-            </div>
-            <div className="space-y-1">
-              <div className="flex items-center justify-between">
-                <label className="text-[13px] text-white/60">{t('visualizer.xOffset', 'X-Offset')}</label>
-                <span className="text-[12px] text-white/40 tabular-nums">{xOffset}px</span>
-              </div>
-              <input type="range" min={-500} max={500} step={10} value={xOffset} onChange={(e) => useSettingsStore.getState().setVisualizerXOffset(Number(e.target.value))} className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[var(--color-accent)]" />
             </div>
             <div className="space-y-1">
               <div className="flex items-center justify-between">

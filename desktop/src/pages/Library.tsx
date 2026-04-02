@@ -570,8 +570,10 @@ function formatHistoryDate(dateStr: string, t: (k: string) => string): string {
 const HistoryTab = React.memo(function HistoryTab() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const play = usePlayerStore((s) => s.play);
   const historyQuery = useHistory();
   const { entries, isLoading } = historyQuery;
+  const [loadingTrackId, setLoadingTrackId] = useState<string | null>(null);
   const sentinelRef = useInfiniteScroll(
     !!historyQuery.hasNextPage,
     !!historyQuery.isFetchingNextPage,
@@ -582,6 +584,20 @@ const HistoryTab = React.memo(function HistoryTab() {
     await api('/history', { method: 'DELETE' });
     historyQuery.refetch();
   }, [historyQuery]);
+
+  const handlePlayFromHistory = useCallback(
+    async (entry: HistoryEntry) => {
+      if (loadingTrackId === entry.id) return;
+      setLoadingTrackId(entry.id);
+      try {
+        const track = await api<Track>(`/tracks/${encodeURIComponent(entry.scTrackId)}`);
+        play(track, [track]);
+      } finally {
+        setLoadingTrackId((current) => (current === entry.id ? null : current));
+      }
+    },
+    [loadingTrackId, play],
+  );
 
   // Group entries by date
   const grouped = useMemo(() => {
@@ -628,6 +644,21 @@ const HistoryTab = React.memo(function HistoryTab() {
                     key={entry.id}
                     className="group flex items-center gap-4 px-4 py-3 rounded-2xl hover:bg-white/[0.04] transition-all duration-300"
                   >
+                    <button
+                      type="button"
+                      onClick={() => void handlePlayFromHistory(entry)}
+                      className="w-8 h-8 flex items-center justify-center shrink-0 cursor-pointer"
+                      title={t('player.play')}
+                    >
+                      {loadingTrackId === entry.id ? (
+                        <Loader2 size={14} className="animate-spin text-white/40" />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white/70 hover:bg-white/20 hover:text-white transition-all">
+                          {playWhite14}
+                        </div>
+                      )}
+                    </button>
+
                     <div className="relative w-11 h-11 rounded-xl overflow-hidden shrink-0 ring-1 ring-white/[0.08] shadow-md">
                       {entry.artworkUrl ? (
                         <img

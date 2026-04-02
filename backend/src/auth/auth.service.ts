@@ -18,6 +18,8 @@ import { Session } from './entities/session.entity.js';
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+  // Карта для хранения кастомных ключей (использовалась до изменений)
+  private customCredentials = new Map<string, OAuthCredentials>();
 
   constructor(
     @InjectRepository(Session)
@@ -27,6 +29,38 @@ export class AuthService {
     private readonly configService: ConfigService,
   ) {}
 
+  /**
+   * Установка кастомных учетных данных для сессии или по умолчанию
+   */
+  async setCustomCredentials(
+    sessionId: string | undefined,
+    creds: OAuthCredentials,
+  ): Promise<void> {
+    const key = sessionId || 'default';
+    this.customCredentials.set(key, creds);
+    this.logger.log(`Custom credentials set for key: ${key}`);
+  }
+
+  clearCustomCredentials(sessionId?: string): void {
+    const key = sessionId || 'default';
+    this.customCredentials.delete(key);
+    this.logger.log(`Custom credentials cleared for key: ${key}`);
+  }
+
+  private isValidCredentials(creds?: Partial<OAuthCredentials> | null): creds is OAuthCredentials {
+    if (!creds) return false;
+
+    const values = [creds.clientId, creds.clientSecret, creds.redirectUri];
+    return values.every((value) => {
+      const normalized = String(value ?? '').trim().toLowerCase();
+      return normalized !== '' && normalized !== 'undefined' && normalized !== 'null';
+    });
+  }
+
+  private getCustomCredentials(key: string): OAuthCredentials | undefined {
+    return this.customCredentials.get(key);
+  }
+
   async initiateLogin(): Promise<{ url: string; sessionId: string }> {
     const codeVerifier = randomBytes(32).toString('base64url');
     const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
@@ -35,23 +69,34 @@ export class AuthService {
     let oauthAppId: string | undefined;
     let creds: OAuthCredentials;
 
-    try {
-      const app = this.oauthAppsService.pickRandomApp();
-      oauthAppId = app.id;
-      creds = {
-        clientId: app.clientId,
-        clientSecret: app.clientSecret,
-        redirectUri: app.redirectUri,
-      };
-      this.logger.log(`Login initiated with app "${app.name}" (${app.id})`);
-    } catch {
-      creds = this.getEnvCredentials();
-      if (!creds.clientId || !creds.clientSecret) {
-        throw new NotFoundException(
-          'No active OAuth apps available and env fallback is not configured',
-        );
+    // Сначала проверяем наличие кастомных учетных данных
+    const customCreds = this.getCustomCredentials('default');
+    if (this.isValidCredentials(customCreds)) {
+      creds = customCreds;
+      this.logger.log('Using custom credentials for login');
+    } else {
+      if (customCreds) {
+        this.clearCustomCredentials('default');
+        this.logger.warn('Ignored invalid custom credentials and cleared them');
       }
-      this.logger.warn('No active OAuth apps available, using env OAuth fallback');
+      try {
+        const app = this.oauthAppsService.pickRandomApp();
+        oauthAppId = app.id;
+        creds = {
+          clientId: app.clientId,
+          clientSecret: app.clientSecret,
+          redirectUri: app.redirectUri,
+        };
+        this.logger.log(`Login initiated with app "${app.name}" (${app.id})`);
+      } catch {
+        creds = this.getEnvCredentials();
+        if (!creds.clientId || !creds.clientSecret) {
+          throw new NotFoundException(
+            'No active OAuth apps available and env fallback is not configured',
+          );
+        }
+        this.logger.warn('No active OAuth apps available, using env OAuth fallback');
+      }
     }
 
     const session = this.sessionRepo.create({
@@ -222,6 +267,10 @@ export class AuthService {
   }
 
   private async getSessionCredentials(session: Session): Promise<OAuthCredentials> {
+    // Сначала проверяем кастомные ключи для конкретной сессии
+    const custom = this.getCustomCredentials(session.id) || this.getCustomCredentials('default');
+    if (custom) return custom;
+
     if (session.oauthAppId) {
       const app = await this.oauthAppsService.getById(session.oauthAppId);
       if (app) {

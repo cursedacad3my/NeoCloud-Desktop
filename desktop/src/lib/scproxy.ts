@@ -1,3 +1,6 @@
+import { getProxyPort } from './constants';
+import { isTauriRuntime } from './runtime';
+
 const WHITELIST = [
   'localhost',
   '127.0.0.1',
@@ -8,6 +11,7 @@ const WHITELIST = [
   'unpkg.com',
 ];
 const IS_WINDOWS = navigator.userAgent.includes('Windows');
+const ENABLED = isTauriRuntime();
 
 function isWhitelisted(url: string): boolean {
   try {
@@ -20,7 +24,11 @@ function isWhitelisted(url: string): boolean {
 
 function scproxyUrl(url: string): string {
   const encoded = btoa(url);
-  return IS_WINDOWS ? `http://scproxy.localhost/${encoded}` : `scproxy://localhost/${encoded}`;
+  const proxyPort = getProxyPort();
+  if (IS_WINDOWS && proxyPort) {
+    return `http://127.0.0.1:${proxyPort}/p/${encoded}`;
+  }
+  return IS_WINDOWS ? url : `scproxy://localhost/${encoded}`;
 }
 
 type ProxyImage = HTMLImageElement & { __origSrc?: string; __origRetryDone?: boolean };
@@ -29,7 +37,7 @@ type ProxyImage = HTMLImageElement & { __origSrc?: string; __origRetryDone?: boo
 const imgSrcDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src')!;
 Object.defineProperty(HTMLImageElement.prototype, 'src', {
   set(url: string) {
-    if (url?.startsWith('http') && !isWhitelisted(url)) {
+    if (ENABLED && url?.startsWith('http') && !isWhitelisted(url)) {
       const img = this as ProxyImage;
       img.__origSrc = url;
       img.__origRetryDone = false;
@@ -65,6 +73,10 @@ document.addEventListener(
 // Hook fetch()
 const origFetch = window.fetch.bind(window);
 window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  if (!ENABLED) {
+    return origFetch(input, init);
+  }
+
   let originalUrl: string | null = null;
   let proxiedInput: RequestInfo | URL = input;
   const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();

@@ -1446,6 +1446,7 @@ pub fn audio_set_media_position(position: f64, state: tauri::State<'_, AudioStat
 #[derive(serde::Serialize, Clone)]
 pub struct AudioSink {
     pub name: String,        // internal name for pactl
+    pub display_name: String,
     pub description: String, // human-readable
     pub is_default: bool,
 }
@@ -1493,6 +1494,7 @@ fn audio_list_devices_pactl() -> Vec<AudioSink> {
             Some(AudioSink {
                 is_default: name == default_sink,
                 name,
+                display_name: description.clone(),
                 description,
             })
         })
@@ -1518,14 +1520,17 @@ fn audio_list_devices_cpal() -> Vec<AudioSink> {
     devices
         .filter_map(|dev| {
             let id = dev.id().ok()?.to_string();
+            #[allow(deprecated)]
+            let display_name = dev.name().ok().unwrap_or_else(|| id.clone());
             let description = dev
                 .description()
                 .ok()
                 .map(|d| d.name().to_string())
-                .unwrap_or_else(|| id.clone());
+                .unwrap_or_else(|| display_name.clone());
             Some(AudioSink {
                 is_default: default_id.as_deref() == Some(id.as_str()),
                 name: id,
+                display_name,
                 description,
             })
         })
@@ -1552,12 +1557,18 @@ pub fn audio_switch_device(
     #[cfg(not(target_os = "linux"))]
     let switch_name: Option<String> = device_name;
 
-    // Stop current playback
+     // Stop current playback
     {
         let mut player = state.player.lock().unwrap();
         if let Some(old) = player.take() {
             old.stop();
         }
+
+        let mut crossfade_player = state.crossfade_player.lock().unwrap();
+        if let Some(old) = crossfade_player.take() {
+            old.stop();
+        }
+
         state.has_track.store(false, Ordering::Relaxed);
         state.load_gen.fetch_add(1, Ordering::Relaxed);
     }
@@ -1571,9 +1582,9 @@ pub fn audio_switch_device(
         })
         .map_err(|e| e.to_string())?;
 
-    let new_mixer = reply_rx
-        .recv()
-        .map_err(|e| format!("Device switch failed: {}", e))?
+     let new_mixer = reply_rx
+        .recv_timeout(Duration::from_secs(4))
+        .map_err(|e| format!("Device switch timed out: {}", e))?
         .map_err(|e| e)?;
 
     *state.mixer.lock().unwrap() = new_mixer;
@@ -1605,6 +1616,7 @@ pub fn start_visualizer_thread(app: &AppHandle) {
     std::thread::Builder::new()
         .name("audio-visualizer".into())
         .spawn(move || {
+            let mut last_emit_at = std::time::Instant::now() - Duration::from_millis(120);
             let mut planner = FftPlanner::new();
             let fft = planner.plan_fft_forward(FFT_SIZE);
             let mut complex_buffer = vec![Complex { re: 0.0, im: 0.0 }; FFT_SIZE];
@@ -1616,6 +1628,10 @@ pub fn start_visualizer_thread(app: &AppHandle) {
             }
 
             while let Ok(samples) = rx.recv() {
+                if last_emit_at.elapsed() < Duration::from_millis(66) {
+                    continue;
+                }
+
                 let mut is_silent = true;
                 for i in 0..FFT_SIZE {
                     let s = samples[i];
@@ -1627,6 +1643,7 @@ pub fn start_visualizer_thread(app: &AppHandle) {
                 }
 
                 if is_silent {
+                    last_emit_at = std::time::Instant::now();
                     handle.emit("audio:visualizer", vec![0u8; 64]).ok();
                     continue;
                 }
@@ -1652,11 +1669,20 @@ pub fn start_visualizer_thread(app: &AppHandle) {
                         sum += (c.re * c.re + c.im * c.im).sqrt();
                     }
                     let avg = sum / (max_idx - min_idx).max(1) as f32;
-                    
-                    let val = (avg * 1.5).min(255.0) as u8;
+
+                    // Low frequencies carry much more raw energy than mids/highs.
+                    // Apply a gentle spectral tilt and logarithmic compression so
+                    // bass stays punchy but no longer dwarfs the rest of the band map.
+                    let norm = i as f32 / 63.0;
+                    let freq_weight = 0.22 + 0.78 * norm.powf(0.72);
+                    let compensated = avg * freq_weight;
+                    let compressed = (1.0f32 + compensated * 0.045f32).ln()
+                        / (1.0f32 + 255.0f32 * 0.045f32).ln();
+                    let val = (compressed * 255.0).clamp(0.0, 255.0) as u8;
                     bins[i] = val;
                 }
                 
+                last_emit_at = std::time::Instant::now();
                 handle.emit("audio:visualizer", bins).ok();
             }
         })

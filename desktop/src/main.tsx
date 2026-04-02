@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { invoke } from '@tauri-apps/api/core';
 import React from 'react';
-import ReactDOM from 'react-dom/client';
+import ReactDOM, { type Root } from 'react-dom/client';
 import App from './App';
 import i18n from './i18n';
 import { ApiError } from './lib/api';
@@ -50,6 +50,10 @@ export const queryClient = new QueryClient({
     },
   },
 });
+
+type RootWindow = Window & {
+  __scdRoot?: Root;
+};
 
 async function registerServiceWorker(proxyPort: number) {
   if (!('serviceWorker' in navigator)) return;
@@ -101,7 +105,14 @@ async function bootstrap() {
     await registerServiceWorker(proxyPort);
   }
 
-  ReactDOM.createRoot(document.getElementById('root')!).render(
+  const rootEl = document.getElementById('root');
+  if (!rootEl) return;
+
+  const rootWindow = window as RootWindow;
+  const root = rootWindow.__scdRoot ?? ReactDOM.createRoot(rootEl);
+  rootWindow.__scdRoot = root;
+
+  root.render(
     <React.StrictMode>
       <QueryClientProvider client={queryClient}>
         <App />

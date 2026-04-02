@@ -25,7 +25,6 @@ export const Visualizer: React.FC<VisualizerProps> = ({ className = '', style })
   const themeColorOpt = useSettingsStore((s) => s.visualizerThemeColor);
   const accentColorHex = useSettingsStore((s) => s.accentColor);
   const vizScale = useSettingsStore((s) => s.visualizerScale) / 100;
-  const vizXOffset = useSettingsStore((s) => s.visualizerXOffset);
   const vizYOffset = useSettingsStore((s) => s.visualizerYOffset);
   const vizMirror = useSettingsStore((s) => s.visualizerMirror);
   const vizSmoothing = useSettingsStore((s) => s.visualizerSmoothing);
@@ -242,12 +241,12 @@ export const Visualizer: React.FC<VisualizerProps> = ({ className = '', style })
   return (
     <canvas
       ref={canvasRef}
-      className={`pointer-events-none ${className}`}
-      style={{
-        transform: `translate(${vizXOffset}px, ${vizYOffset}px) scale(${vizScale})`,
-        transformOrigin: 'bottom center',
-        transition: 'transform 0.15s ease-out',
-      }}
+        className={`pointer-events-none ${className}`}
+        style={{
+          transform: `translate(0px, ${vizYOffset}px) scale(${vizScale})`,
+          transformOrigin: 'bottom center',
+          transition: 'transform 0.15s ease-out',
+        }}
     />
   );
 };

@@ -135,7 +135,7 @@ function parseLRC(lrc: string): LyricLine[] {
     if (!m) continue;
     const time = +m[1] * 60 + +m[2] + +m[3].padEnd(3, '0') / 1000;
     const text = m[4].trim();
-    if (text) lines.push({ time, text });
+    lines.push({ time, text });
   }
   return lines;
 }
