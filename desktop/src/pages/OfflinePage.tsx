@@ -475,6 +475,15 @@ export const OfflinePage = React.memo(() => {
       return { ...prev, cachedLyricsUrns: nextLyrics };
     });
   }, []);
+
+  const handleTryOnline = useCallback(() => {
+    const appStatus = useAppStatusStore.getState();
+    appStatus.resetConnectivity();
+    appStatus.setNavigatorOnline(typeof navigator === 'undefined' ? true : navigator.onLine);
+    appStatus.setBackendReachable(true);
+    appStatus.setSoundcloudBlocked(false);
+    navigate('/', { replace: true });
+  }, [navigate]);
  
    const cachedLikesCount = useMemo(
     () => state.likedTracks.filter((track) => state.cachedUrns.has(track.urn)).length,
@@ -604,10 +613,7 @@ export const OfflinePage = React.memo(() => {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    useAppStatusStore.getState().resetConnectivity();
-                    navigate('/');
-                  }}
+                  onClick={handleTryOnline}
                   className="inline-flex cursor-pointer items-center gap-2 rounded-[16px] border border-white/10 bg-white/[0.06] px-4 py-2.5 text-[13px] font-semibold text-white/80 shadow-[0_2px_8px_rgba(0,0,0,0.1)] transition-all hover:border-white/14 hover:bg-white/[0.10]"
                 >
                   <RotateCcw size={15} />

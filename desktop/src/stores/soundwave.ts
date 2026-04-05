@@ -10,6 +10,7 @@ import {
   filterByLanguage,
   type TrackLanguageProfile,
 } from '../lib/language-detection';
+import { getLikedUrnsSnapshot, initLikedUrns } from '../lib/likes';
 import { rerankTracksWithLLM } from '../lib/llm-rerank';
 import { requestMertEmbedding } from '../lib/mert-analyser';
 import { fetchCrossPlatformRegionalTracks } from '../lib/popular-sources';
@@ -1211,6 +1212,162 @@ const finalizeCandidates = async (
   return selectBalancedTracks(rescored, preset, limit).map((track) => track as Track);
 };
 
+const SOUNDWAVE_BATCH_LIMIT = 20;
+const SOUNDWAVE_HIDE_LIKED_POOL_TARGET = 40;
+const SOUNDWAVE_HIDE_LIKED_QDRANT_LIMIT = 180;
+const SOUNDWAVE_HIDE_LIKED_LEGACY_SEED_COUNT = 10;
+const SOUNDWAVE_HIDE_LIKED_RELATED_LIMIT = 40;
+
+const isHiddenLikedTrack = (track: Track, likedUrns: Set<string>): boolean => {
+  const rankedTrack = track as Partial<RankedTrack>;
+  return (
+    likedUrns.has(track.urn) || Boolean(track.user_favorite) || Boolean(rankedTrack._isLiked)
+  );
+};
+
+const dedupeTracksByUrn = <T extends Track>(tracks: T[]): T[] => {
+  const seen = new Set<string>();
+  return tracks.filter((track) => {
+    const urn = track?.urn;
+    if (!urn || seen.has(urn)) return false;
+    seen.add(urn);
+    return true;
+  });
+};
+
+const mergeTrackLanguageProfiles = (
+  base: Map<number, TrackLanguageProfile> | null,
+  extra: Map<number, TrackLanguageProfile>,
+): Map<number, TrackLanguageProfile> => {
+  const merged = new Map<number, TrackLanguageProfile>(base || []);
+  for (const [trackId, profile] of extra.entries()) {
+    merged.set(trackId, profile);
+  }
+  return merged;
+};
+
+const rankHideLikedTopUpTracks = (
+  tracks: Track[],
+  preset: SoundWavePreset | null,
+  heardUrnRank: Map<string, number>,
+): RankedTrack[] =>
+  tracks
+    .map((track) => {
+      const heardRank = heardUrnRank.has(track.urn) ? (heardUrnRank.get(track.urn) as number) : -1;
+      const isHeard = heardRank >= 0;
+      const recency = isHeard ? Math.max(0, 1 - heardRank / 220) : 0;
+      let score =
+        (preset?.mode === 'favorite' ? 4.9 : preset?.mode === 'popular' ? 5.3 : 5.8) +
+        Math.random() * 1.1;
+
+      if (isHeard) {
+        score -= preset?.mode === 'discover' ? 7.4 * recency + 0.9 : 3.2 * recency + 0.5;
+      } else {
+        score += preset?.mode === 'discover' ? 1.2 : 0.4;
+      }
+
+      return {
+        ...track,
+        _swScore: score,
+        _isLiked: false,
+        _isHeard: isHeard,
+        _heardRank: heardRank,
+      } as RankedTrack;
+    })
+    .sort((a, b) => b._swScore - a._swScore);
+
+const topUpCandidatesAfterHideLiked = async ({
+  sourceLabel,
+  candidates,
+  currentPreset,
+  settings,
+  seedTracks,
+  explorePool,
+  likedUrns,
+  playedUrns,
+  dislikedUrns,
+  heardUrnRank,
+  enrichedProfiles,
+  targetSize = SOUNDWAVE_HIDE_LIKED_POOL_TARGET,
+}: {
+  sourceLabel: string;
+  candidates: RankedTrack[];
+  currentPreset: SoundWavePreset | null;
+  settings: ReturnType<typeof useSettingsStore.getState>;
+  seedTracks: Track[];
+  explorePool: Track[];
+  likedUrns: Set<string>;
+  playedUrns: Set<string>;
+  dislikedUrns: string[];
+  heardUrnRank: Map<string, number>;
+  enrichedProfiles: Map<number, TrackLanguageProfile> | null;
+  targetSize?: number;
+}): Promise<{
+  candidates: RankedTrack[];
+  enrichedProfiles: Map<number, TrackLanguageProfile> | null;
+}> => {
+  if (!settings.soundwaveHideLiked || candidates.length >= targetSize) {
+    return { candidates, enrichedProfiles };
+  }
+
+  const existingUrns = new Set(candidates.map((track) => track.urn));
+  const modeFallbackPool =
+    currentPreset?.mode === 'favorite' ? [...seedTracks, ...explorePool] : [...explorePool, ...seedTracks];
+  const languagePool =
+    settings.languageFilterEnabled && settings.preferredLanguage !== 'all'
+      ? await fetchLanguageSearchTracks(settings.preferredLanguage)
+      : [];
+
+  let fallbackSource = dedupeTracksByUrn([...languagePool, ...modeFallbackPool]).filter((track) => {
+    if (!track?.urn || existingUrns.has(track.urn)) return false;
+    if (!isTrackPlayable(track)) return false;
+    if (playedUrns.has(track.urn)) return false;
+    if (dislikedUrns.includes(track.urn)) return false;
+    if (isHiddenLikedTrack(track, likedUrns)) return false;
+    return true;
+  });
+
+  let nextProfiles = enrichedProfiles;
+  if (settings.languageFilterEnabled && settings.preferredLanguage !== 'all') {
+    const { filtered, profiles } = await applyLanguageFilterWithEnrichment(
+      fallbackSource.slice(0, 720),
+      settings.preferredLanguage,
+    );
+    fallbackSource = filtered;
+    nextProfiles = mergeTrackLanguageProfiles(nextProfiles, profiles);
+  }
+
+  const strictGenreSelection = settings.soundwaveGenreStrict
+    ? settings.soundwaveSelectedGenres.map((genre) => normalizeGenreToken(genre)).filter(Boolean)
+    : [];
+  const strictGenreTerms =
+    strictGenreSelection.length > 0 ? buildGenreMatchTerms(strictGenreSelection) : [];
+
+  if (strictGenreTerms.length > 0) {
+    fallbackSource = fallbackSource.filter((track) => trackMatchesSelectedGenres(track, strictGenreTerms));
+  }
+
+  if (fallbackSource.length === 0) {
+    return { candidates, enrichedProfiles: nextProfiles };
+  }
+
+  const merged = [...candidates];
+  for (const track of rankHideLikedTopUpTracks(fallbackSource, currentPreset, heardUrnRank)) {
+    if (existingUrns.has(track.urn)) continue;
+    merged.push(track);
+    existingUrns.add(track.urn);
+    if (merged.length >= targetSize) break;
+  }
+
+  if (merged.length > candidates.length) {
+    console.log(
+      `[SoundWave] ${sourceLabel} hide-liked top-up: ${merged.length}/${targetSize} candidates`,
+    );
+  }
+
+  return { candidates: merged, enrichedProfiles: nextProfiles };
+};
+
 interface SoundWaveState {
   isActive: boolean;
   isSuspended: boolean;
@@ -1241,6 +1398,7 @@ interface SoundWaveState {
   suspendForExternalPlayback: (queue: Track[], queueIndex: number) => void;
   resumeSuspendedPlayback: () => boolean;
   ingestPlayedTrackFeatures: (track: Track | null | undefined) => void;
+  markTrackPlayed: (track: Track | null | undefined) => void;
   generateBatch: (options?: { startup?: boolean }) => Promise<Track[]>;
   recordFeedback: (track: Track, type: 'positive' | 'negative') => void;
   trainTrackMood: (track: Track, mood: MoodLabel) => void;
@@ -1340,6 +1498,9 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
       try {
         tracks = await fetchAllLikedTracks(200);
         tracks = tracks.filter((track) => isTrackPlayable(track));
+        if (tracks.length > 0) {
+          initLikedUrns(tracks);
+        }
         console.log(`[SoundWave] Found ${tracks.length} liked tracks`);
         updateStartup(38, 'likes');
       } catch (likesError) {
@@ -1699,6 +1860,11 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
     schedulePlayedFeatureFlush(get, 900);
   },
 
+  markTrackPlayed: (track) => {
+    if (!track?.urn) return;
+    get().playedUrns.add(track.urn);
+  },
+
   recordFeedback: (track: Track, type: 'positive' | 'negative') => {
     const { qdrant, sessionPositive, sessionNegative } = get();
     if (!qdrant) return;
@@ -1784,7 +1950,18 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
       }
 
       const dislikedUrns = useDislikesStore.getState().dislikedTrackUrns;
-      const likedUrns = new Set(seedTracks.map((t) => t.urn));
+      const likedUrns = getLikedUrnsSnapshot();
+      for (const track of seedTracks) {
+        likedUrns.add(track.urn);
+      }
+      const settings = useSettingsStore.getState();
+      const qdrantLimit = settings.soundwaveHideLiked ? SOUNDWAVE_HIDE_LIKED_QDRANT_LIMIT : 72;
+      const legacySeedCount = settings.soundwaveHideLiked
+        ? SOUNDWAVE_HIDE_LIKED_LEGACY_SEED_COUNT
+        : 5;
+      const legacyRelatedLimit = settings.soundwaveHideLiked
+        ? SOUNDWAVE_HIDE_LIKED_RELATED_LIMIT
+        : 20;
 
       if (qdrant) {
         try {
@@ -1827,7 +2004,6 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
                   .filter((id) => id > 0)
               : [];
 
-          const settings = useSettingsStore.getState();
           const targetVector = qdrant.buildTargetVector({
             mode: currentPreset?.mode,
             tags: currentPreset?.tags,
@@ -1839,7 +2015,7 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
           const results = await qdrant.recommendHybrid({
             positive,
             negative: [...sessionNegative, ...discoverNegatives],
-            limit: 72,
+            limit: qdrantLimit,
             targetVector,
           });
           console.log(`[SoundWave] Qdrant returned ${results.length} recommendations`);
@@ -1973,7 +2149,6 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
           }
 
           if (rankedCandidates.length > 0) {
-            const settings = useSettingsStore.getState();
             const hasStrictGenreFilter =
               settings.soundwaveGenreStrict &&
               settings.soundwaveSelectedGenres.some(
@@ -2179,27 +2354,38 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
 
             if (settings.soundwaveHideLiked) {
               const before = candidatesForFinalize.length;
-              candidatesForFinalize = candidatesForFinalize.filter((track) => {
-                const rankedTrack = track as RankedTrack;
-                return !(
-                  likedUrns.has(track.urn) ||
-                  Boolean(track.user_favorite) ||
-                  Boolean(rankedTrack._isLiked)
-                );
-              });
+              candidatesForFinalize = candidatesForFinalize.filter(
+                (track) => !isHiddenLikedTrack(track, likedUrns),
+              );
               if (before !== candidatesForFinalize.length) {
                 console.log(
                   `[SoundWave] Hide liked tracks: ${candidatesForFinalize.length}/${before} candidates kept`,
                 );
               }
+
+              const topup = await topUpCandidatesAfterHideLiked({
+                sourceLabel: 'Qdrant',
+                candidates: candidatesForFinalize,
+                currentPreset,
+                settings,
+                seedTracks,
+                explorePool,
+                likedUrns,
+                playedUrns,
+                dislikedUrns,
+                heardUrnRank,
+                enrichedProfiles,
+              });
+              candidatesForFinalize = topup.candidates;
+              enrichedProfiles = topup.enrichedProfiles;
             }
 
-            const finalTracks = await finalizeCandidates(candidatesForFinalize, currentPreset, 20);
+            const finalTracks = await finalizeCandidates(
+              candidatesForFinalize,
+              currentPreset,
+              SOUNDWAVE_BATCH_LIMIT,
+            );
             updateStartup(98, 'done');
-
-            for (const t of finalTracks) {
-              playedUrns.add(t.urn);
-            }
 
             const languageProfiles = finalTracks.map(
               (t) => enrichedProfiles?.get(t.id) || analyzeTrackLanguage(t),
@@ -2232,21 +2418,24 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
 
       // Fallback to legacy algorithm...
 
-      // Pick 5 random seeds from user's likes
+      // Pick random seeds from user's likes
       const seedBase = seedTracks.length > 0 ? seedTracks : explorePool;
       if (seedBase.length === 0) {
         return [];
       }
-      const seeds = [...seedBase].sort(() => Math.random() - 0.5).slice(0, 5);
+      const seeds = [...seedBase].sort(() => Math.random() - 0.5).slice(0, legacySeedCount);
       const candidates: RankedTrack[] = [];
       const seenUrns = new Set<string>();
 
       // Step 1: Fetch related tracks for each seed
       const results = await Promise.all(
         seeds.map((s) =>
-          api<{ collection: Track[] }>(`/tracks/${encodeURIComponent(s.urn)}/related?limit=20`, {
-            quietHttpErrors: true,
-          })
+          api<{ collection: Track[] }>(
+            `/tracks/${encodeURIComponent(s.urn)}/related?limit=${legacyRelatedLimit}`,
+            {
+              quietHttpErrors: true,
+            },
+          )
             .then((res) => res.collection || [])
             .catch(() => []),
         ),
@@ -2345,7 +2534,6 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
         });
       }
 
-      const settings = useSettingsStore.getState();
       const hasStrictGenreFilter =
         settings.soundwaveGenreStrict &&
         settings.soundwaveSelectedGenres.some((genre) => normalizeGenreToken(genre).length > 0);
@@ -2532,27 +2720,38 @@ export const useSoundWaveStore = create<SoundWaveState>((set, get) => ({
 
       if (settings.soundwaveHideLiked) {
         const before = candidatesForFinalize.length;
-        candidatesForFinalize = candidatesForFinalize.filter((track) => {
-          const rankedTrack = track as RankedTrack;
-          return !(
-            likedUrns.has(track.urn) ||
-            Boolean(track.user_favorite) ||
-            Boolean(rankedTrack._isLiked)
-          );
-        });
+        candidatesForFinalize = candidatesForFinalize.filter(
+          (track) => !isHiddenLikedTrack(track, likedUrns),
+        );
         if (before !== candidatesForFinalize.length) {
           console.log(
             `[SoundWave] Hide liked tracks: ${candidatesForFinalize.length}/${before} candidates kept`,
           );
         }
+
+        const topup = await topUpCandidatesAfterHideLiked({
+          sourceLabel: 'Legacy',
+          candidates: candidatesForFinalize,
+          currentPreset,
+          settings,
+          seedTracks,
+          explorePool,
+          likedUrns,
+          playedUrns,
+          dislikedUrns,
+          heardUrnRank,
+          enrichedProfiles,
+        });
+        candidatesForFinalize = topup.candidates;
+        enrichedProfiles = topup.enrichedProfiles;
       }
 
-      const selected = await finalizeCandidates(candidatesForFinalize, currentPreset, 20);
+      const selected = await finalizeCandidates(
+        candidatesForFinalize,
+        currentPreset,
+        SOUNDWAVE_BATCH_LIMIT,
+      );
       updateStartup(98, 'done');
-
-      for (const t of selected) {
-        playedUrns.add(t.urn);
-      }
 
       const languageProfiles = selected.map(
         (t) => enrichedProfiles?.get(t.id) || analyzeTrackLanguage(t),

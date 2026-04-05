@@ -44,6 +44,40 @@ function shuffleArray<T>(arr: T[]): void {
   }
 }
 
+function dedupeTracks(tracks: Track[]): Track[] {
+  const seen = new Set<string>();
+  const unique: Track[] = [];
+
+  for (const track of tracks) {
+    if (!track?.urn || seen.has(track.urn)) continue;
+    seen.add(track.urn);
+    unique.push(track);
+  }
+
+  return unique;
+}
+
+function appendUniqueTracks(existing: Track[], incoming: Track[]): Track[] {
+  if (incoming.length === 0) return existing;
+
+  const seen = new Set(existing.map((track) => track.urn));
+  const fresh = incoming.filter((track) => track?.urn && !seen.has(track.urn));
+
+  return fresh.length > 0 ? [...existing, ...fresh] : existing;
+}
+
+function insertUniqueTracks(existing: Track[], incoming: Track[], insertIndex: number): Track[] {
+  if (incoming.length === 0) return existing;
+
+  const seen = new Set(existing.map((track) => track.urn));
+  const fresh = incoming.filter((track) => track?.urn && !seen.has(track.urn));
+  if (fresh.length === 0) return existing;
+
+  const queue = [...existing];
+  queue.splice(insertIndex, 0, ...fresh);
+  return queue;
+}
+
 interface PlayerState {
   currentTrack: Track | null;
   queue: Track[];
@@ -73,6 +107,7 @@ interface PlayerState {
   toggleShuffle: () => void;
   toggleRepeat: () => void;
   setCurrentTrackAccess: (access: Track['access']) => void;
+  setTrackAccessByUrn: (urn: string, access: Track['access']) => void;
   setCurrentTrackStreamQuality: (quality: Track['streamQuality']) => void;
   setCurrentTrackStreamCodec: (codec: Track['streamCodec']) => void;
 }
@@ -93,13 +128,14 @@ export const usePlayerStore = create<PlayerState>()(
 
       play: (track, queue, source = 'manual') => {
         if (queue) {
+          const uniqueQueue = dedupeTracks(queue);
           const { shuffle } = get();
-          const idx = queue.findIndex((t) => t.urn === track.urn);
+          const idx = uniqueQueue.findIndex((t) => t.urn === track.urn);
           const realIdx = idx >= 0 ? idx : 0;
 
           if (shuffle) {
-            const original = [...queue];
-            const rest = [...queue.slice(0, realIdx), ...queue.slice(realIdx + 1)];
+            const original = [...uniqueQueue];
+            const rest = [...uniqueQueue.slice(0, realIdx), ...uniqueQueue.slice(realIdx + 1)];
             shuffleArray(rest);
             set({
               currentTrack: track,
@@ -112,7 +148,7 @@ export const usePlayerStore = create<PlayerState>()(
           } else {
             set({
               currentTrack: track,
-              queue,
+              queue: uniqueQueue,
               queueIndex: realIdx,
               queueSource: source,
               isPlaying: true,
@@ -167,7 +203,8 @@ export const usePlayerStore = create<PlayerState>()(
 
           const track = queue[nextIdx];
           const isDisliked = useDislikesStore.getState().dislikedTrackUrns.includes(track.urn);
-          if (!isDisliked) break;
+          const isBlocked = (track.access || 'playable') === 'blocked';
+          if (!isDisliked && !isBlocked) break;
 
           nextIdx++;
           attempts++;
@@ -195,7 +232,8 @@ export const usePlayerStore = create<PlayerState>()(
         while (attempts < queue.length && prevIdx > 0) {
           const track = queue[prevIdx];
           const isDisliked = useDislikesStore.getState().dislikedTrackUrns.includes(track.urn);
-          if (!isDisliked) break;
+          const isBlocked = (track.access || 'playable') === 'blocked';
+          if (!isDisliked && !isBlocked) break;
 
           prevIdx--;
           attempts++;
@@ -221,28 +259,33 @@ export const usePlayerStore = create<PlayerState>()(
 
       setQueue: (queue) =>
         set((s) => {
-          const idx = s.currentTrack ? queue.findIndex((t) => t.urn === s.currentTrack!.urn) : -1;
+          const uniqueQueue = dedupeTracks(queue);
+          const idx = s.currentTrack
+            ? uniqueQueue.findIndex((t) => t.urn === s.currentTrack!.urn)
+            : -1;
           return {
-            queue,
+            queue: uniqueQueue,
             queueIndex: idx >= 0 ? idx : s.queueIndex,
-            originalQueue: s.shuffle ? [...queue] : null,
+            originalQueue: s.shuffle ? [...uniqueQueue] : null,
           };
         }),
 
       addToQueue: (tracks) =>
-        set((s) => ({
-          queue: [...s.queue, ...tracks],
-          originalQueue: s.originalQueue ? [...s.originalQueue, ...tracks] : null,
-        })),
+        set((s) => {
+          const queue = appendUniqueTracks(s.queue, tracks);
+          const originalQueue = s.originalQueue ? appendUniqueTracks(s.originalQueue, tracks) : null;
+          return { queue, originalQueue };
+        }),
 
       addToQueueNext: (tracks) =>
         set((s) => {
-          const queue = [...s.queue];
           const insertIndex = s.queueIndex >= 0 ? s.queueIndex + 1 : 0;
-          queue.splice(insertIndex, 0, ...tracks);
+          const queue = insertUniqueTracks(s.queue, tracks, insertIndex);
           return {
             queue,
-            originalQueue: s.originalQueue ? [...s.originalQueue, ...tracks] : null,
+            originalQueue: s.originalQueue
+              ? appendUniqueTracks(s.originalQueue, tracks)
+              : null,
           };
         }),
 
@@ -316,6 +359,15 @@ export const usePlayerStore = create<PlayerState>()(
 
       setCurrentTrackAccess: (access) =>
         set((s) => (s.currentTrack ? { currentTrack: { ...s.currentTrack, access } } : {})),
+      setTrackAccessByUrn: (urn, access) =>
+        set((s) => ({
+          currentTrack:
+            s.currentTrack?.urn === urn ? { ...s.currentTrack, access } : s.currentTrack,
+          queue: s.queue.map((track) => (track.urn === urn ? { ...track, access } : track)),
+          originalQueue: s.originalQueue
+            ? s.originalQueue.map((track) => (track.urn === urn ? { ...track, access } : track))
+            : null,
+        })),
       setCurrentTrackStreamQuality: (streamQuality) =>
         set((s) => (s.currentTrack ? { currentTrack: { ...s.currentTrack, streamQuality } } : {})),
       setCurrentTrackStreamCodec: (streamCodec) =>

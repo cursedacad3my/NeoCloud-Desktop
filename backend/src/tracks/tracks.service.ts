@@ -1,6 +1,7 @@
 import type { Readable } from 'node:stream';
 import { HttpService } from '@nestjs/axios';
-import { Injectable, Logger } from '@nestjs/common';
+import { BadGatewayException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ScPublicAnonService } from '../soundcloud/sc-public-anon.service.js';
 import { ScPublicCookiesService } from '../soundcloud/sc-public-cookies.service.js';
 import { streamFromHls } from '../soundcloud/sc-public-utils.js';
@@ -17,13 +18,19 @@ import type {
 export class TracksService {
   private readonly logger = new Logger(TracksService.name);
   private hqOauthDisabledUntil = 0;
+  private readonly qwenAsrUrl: string;
+  private readonly qwenAsrKey: string;
 
   constructor(
     private readonly sc: SoundcloudService,
     private readonly scPublicAnon: ScPublicAnonService,
     private readonly scPublicCookies: ScPublicCookiesService,
     private readonly httpService: HttpService,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    this.qwenAsrUrl = this.configService.get<string>('lyrics.qwenAsrUrl')?.trim() ?? '';
+    this.qwenAsrKey = this.configService.get<string>('lyrics.qwenAsrKey')?.trim() ?? '';
+  }
 
   search(token: string, params?: Record<string, unknown>): Promise<ScPaginatedResponse<ScTrack>> {
     return this.sc.apiGet('/tracks', token, params);
@@ -55,6 +62,68 @@ export class TracksService {
     range?: string,
   ): Promise<{ stream: Readable; headers: Record<string, string> }> {
     return this.sc.proxyStream(url, token, range);
+  }
+
+  async syncLyricsWithQwen(
+    token: string,
+    trackUrn: string,
+    plainLyrics: string,
+    artist?: string,
+    title?: string,
+    format = 'http_mp3_128',
+  ): Promise<unknown> {
+    if (!this.qwenAsrUrl) {
+      throw new ServiceUnavailableException('Qwen aligner is not configured');
+    }
+
+    const streamData = await this.getStreamWithFallback(token, trackUrn, format, {}, undefined, true);
+    if (!streamData) {
+      throw new NotFoundException('Track not available for ASR sync');
+    }
+
+    const audioBuffer = await this.readStreamToBuffer(streamData.stream);
+    const audioArrayBuffer = audioBuffer.buffer.slice(
+      audioBuffer.byteOffset,
+      audioBuffer.byteOffset + audioBuffer.byteLength,
+    ) as ArrayBuffer;
+    const contentType = streamData.headers['content-type'] || 'audio/mpeg';
+    const form = new FormData();
+    const fileName = `${trackUrn.replace(/[^a-z0-9_-]+/gi, '_')}.${this.extensionFromMime(contentType)}`;
+
+    form.append('audio', new Blob([audioArrayBuffer], { type: contentType }), fileName);
+    form.append('lyrics', plainLyrics);
+    form.append('plainLyrics', plainLyrics);
+    form.append('trackUrn', trackUrn);
+    if (artist) form.append('artist', artist);
+    if (title) form.append('title', title);
+
+    const headers: Record<string, string> = {};
+    if (this.qwenAsrKey) {
+      headers.authorization = `Bearer ${this.qwenAsrKey}`;
+      headers['x-api-key'] = this.qwenAsrKey;
+    }
+
+    form.append('language', 'Russian');
+    form.append('mode', 'forced_alignment');
+    form.append('format', 'words');
+
+    const response = await fetch(this.qwenAsrUrl, {
+      method: 'POST',
+      headers,
+      body: form,
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new BadGatewayException(`Qwen aligner failed: ${response.status}${body ? ` ${body}` : ''}`);
+    }
+
+    const responseType = response.headers.get('content-type') || '';
+    if (responseType.includes('application/json')) {
+      return await response.json();
+    }
+
+    return await response.text();
   }
 
   async getStreamWithFallback(
@@ -188,6 +257,29 @@ export class TracksService {
     if (format.includes('aac')) return 'audio/mp4; codecs="mp4a.40.2"';
     if (format.includes('opus')) return 'audio/ogg; codecs="opus"';
     return 'audio/mpeg';
+  }
+
+  private extensionFromMime(mime: string): string {
+    if (mime.includes('ogg')) return 'ogg';
+    if (mime.includes('mp4') || mime.includes('aac')) return 'm4a';
+    if (mime.includes('wav')) return 'wav';
+    return 'mp3';
+  }
+
+  private async readStreamToBuffer(stream: Readable, maxBytes = 40 * 1024 * 1024): Promise<Buffer> {
+    const chunks: Buffer[] = [];
+    let total = 0;
+
+    for await (const chunk of stream) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      total += buffer.length;
+      if (total > maxBytes) {
+        throw new BadGatewayException('Audio is too large for Qwen aligner upload');
+      }
+      chunks.push(buffer);
+    }
+
+    return Buffer.concat(chunks);
   }
 
   // Восстановлено: Метод извлечения HTTP статуса

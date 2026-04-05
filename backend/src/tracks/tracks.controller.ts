@@ -227,6 +227,35 @@ export class TracksController {
     return this.tracksService.createComment(token, trackUrn, body);
   }
 
+  @Post(':trackUrn/lyrics-sync/qwen')
+  @ApiOperation({ summary: 'Sync plain lyrics with Qwen aligner' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        plainLyrics: { type: 'string' },
+        artist: { type: 'string' },
+        title: { type: 'string' },
+        format: { type: 'string', default: 'http_mp3_128' },
+      },
+      required: ['plainLyrics'],
+    },
+  })
+  syncLyricsWithQwen(
+    @AccessToken() token: string,
+    @Param('trackUrn') trackUrn: string,
+    @Body() body: { plainLyrics: string; artist?: string; title?: string; format?: string },
+  ) {
+    return this.tracksService.syncLyricsWithQwen(
+      token,
+      trackUrn,
+      body.plainLyrics,
+      body.artist,
+      body.title,
+      body.format,
+    );
+  }
+
   @Get(':trackUrn/favoriters')
   @ApiOperation({ summary: 'Get users who favorited a track' })
   @ApiOkResponse({ type: PaginatedUserResponse })

@@ -220,6 +220,7 @@ export function YTMusicImportDialog({
                 />
                 <input
                   type="password"
+                  autoComplete="current-password"
                   value={clientSecret}
                   onChange={(e) => setClientSecret(e.target.value)}
                   placeholder={t('importExternal.youtubeClientSecretPlaceholder')}

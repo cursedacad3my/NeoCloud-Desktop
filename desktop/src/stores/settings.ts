@@ -48,6 +48,8 @@ const PREDEFINED_QDRANT_COLLECTION = decodeBase64(ENCODED_QDRANT_COLLECTION);
 const normalizeQdrantUrl = (value: string): string => value.trim().replace('aws.courd.qdrant.io', 'aws.cloud.qdrant.io');
 
 export type ThemePreset = 'soundcloud' | 'dark' | 'neon' | 'forest' | 'crimson' | 'custom';
+export type ThemeGradientType = 'linear' | 'radial';
+export type ThemeGradientAnimation = 'flow' | 'pulse' | 'breathe';
 export type DiscordRpcMode = 'text' | 'track' | 'artist' | 'activity';
 export type DiscordRpcButtonMode = 'soundcloud' | 'app' | 'both';
 export type ApiMode = 'auto' | 'custom';
@@ -97,6 +99,18 @@ export interface SettingsState {
   accentColor: string;
   bgPrimary: string;
   themePreset: ThemePreset;
+  themeGradientEnabled: boolean;
+  themeGradientType: ThemeGradientType;
+  themeGradientColorA: string;
+  themeGradientColorB: string;
+  themeGradientColorC: string;
+  themeGradientAngle: number;
+  themeGradientAnimated: boolean;
+  themeGradientAnimation: ThemeGradientAnimation;
+  themeGradientSpeed: number;
+  themeGlowEnabled: boolean;
+  themeGlowIntensity: number;
+  themeGlowOpacity: number;
   backgroundImage: string;
   backgroundOpacity: number;
   glassBlur: number;
@@ -150,6 +164,7 @@ export interface SettingsState {
   showFpsCounter: boolean;
   hardwareAcceleration: boolean;
   classicPlaybar: boolean;
+  experimentalRuAudioTextWarmup: boolean;
   soundwavePresetKey: string;
   languageFilterEnabled: boolean;
   preferredLanguage: string;
@@ -159,6 +174,18 @@ export interface SettingsState {
   setAccentColor: (color: string) => void;
   setBgPrimary: (bg: string) => void;
   setThemePreset: (id: ThemePreset) => void;
+  setThemeGradientEnabled: (enabled: boolean) => void;
+  setThemeGradientType: (type: ThemeGradientType) => void;
+  setThemeGradientColorA: (color: string) => void;
+  setThemeGradientColorB: (color: string) => void;
+  setThemeGradientColorC: (color: string) => void;
+  setThemeGradientAngle: (angle: number) => void;
+  setThemeGradientAnimated: (enabled: boolean) => void;
+  setThemeGradientAnimation: (animation: ThemeGradientAnimation) => void;
+  setThemeGradientSpeed: (speed: number) => void;
+  setThemeGlowEnabled: (enabled: boolean) => void;
+  setThemeGlowIntensity: (intensity: number) => void;
+  setThemeGlowOpacity: (opacity: number) => void;
   setBackgroundImage: (url: string) => void;
   setBackgroundOpacity: (opacity: number) => void;
   setGlassBlur: (blur: number) => void;
@@ -213,6 +240,7 @@ export interface SettingsState {
   setShowFpsCounter: (show: boolean) => void;
   setHardwareAcceleration: (enabled: boolean) => void;
   setClassicPlaybar: (v: boolean) => void;
+  setExperimentalRuAudioTextWarmup: (v: boolean) => void;
   setSoundwavePresetKey: (key: string) => void;
   setLanguageFilterEnabled: (v: boolean) => void;
   setPreferredLanguage: (lang: string) => void;
@@ -250,6 +278,18 @@ const DEFAULTS = {
   accentColor: '#ff5500',
   bgPrimary: '#08080a',
   themePreset: 'soundcloud' as ThemePreset,
+  themeGradientEnabled: true,
+  themeGradientType: 'linear' as ThemeGradientType,
+  themeGradientColorA: '#0b1220',
+  themeGradientColorB: '#1a1b3a',
+  themeGradientColorC: '#402014',
+  themeGradientAngle: 135,
+  themeGradientAnimated: true,
+  themeGradientAnimation: 'flow' as ThemeGradientAnimation,
+  themeGradientSpeed: 16,
+  themeGlowEnabled: true,
+  themeGlowIntensity: 72,
+  themeGlowOpacity: 58,
   backgroundImage: '',
   backgroundOpacity: 0.15,
   glassBlur: 40,
@@ -303,6 +343,7 @@ const DEFAULTS = {
   showFpsCounter: false,
   hardwareAcceleration: true,
   classicPlaybar: false,
+  experimentalRuAudioTextWarmup: false,
   soundwavePresetKey: 'work',
   languageFilterEnabled: false,
   preferredLanguage: 'all',
@@ -325,6 +366,19 @@ export const useSettingsStore = create<SettingsState>()(
           set({ themePreset: id, accentColor: preset.accent, bgPrimary: preset.bg });
         }
       },
+      setThemeGradientEnabled: (themeGradientEnabled) => set({ themeGradientEnabled, themePreset: 'custom' }),
+      setThemeGradientType: (themeGradientType) => set({ themeGradientType, themePreset: 'custom' }),
+      setThemeGradientColorA: (themeGradientColorA) => set({ themeGradientColorA, themePreset: 'custom' }),
+      setThemeGradientColorB: (themeGradientColorB) => set({ themeGradientColorB, themePreset: 'custom' }),
+      setThemeGradientColorC: (themeGradientColorC) => set({ themeGradientColorC, themePreset: 'custom' }),
+      setThemeGradientAngle: (themeGradientAngle) => set({ themeGradientAngle, themePreset: 'custom' }),
+      setThemeGradientAnimated: (themeGradientAnimated) => set({ themeGradientAnimated, themePreset: 'custom' }),
+      setThemeGradientAnimation: (themeGradientAnimation) =>
+        set({ themeGradientAnimation, themePreset: 'custom' }),
+      setThemeGradientSpeed: (themeGradientSpeed) => set({ themeGradientSpeed, themePreset: 'custom' }),
+      setThemeGlowEnabled: (themeGlowEnabled) => set({ themeGlowEnabled, themePreset: 'custom' }),
+      setThemeGlowIntensity: (themeGlowIntensity) => set({ themeGlowIntensity, themePreset: 'custom' }),
+      setThemeGlowOpacity: (themeGlowOpacity) => set({ themeGlowOpacity, themePreset: 'custom' }),
       setBackgroundImage: (backgroundImage) => set({ backgroundImage }),
       setBackgroundOpacity: (backgroundOpacity) => set({ backgroundOpacity }),
       setGlassBlur: (glassBlur) => set({ glassBlur }),
@@ -420,18 +474,40 @@ export const useSettingsStore = create<SettingsState>()(
       setShowFpsCounter: (showFpsCounter) => set({ showFpsCounter }),
       setHardwareAcceleration: (hardwareAcceleration) => set({ hardwareAcceleration }),
       setClassicPlaybar: (classicPlaybar) => set({ classicPlaybar }),
+      setExperimentalRuAudioTextWarmup: (experimentalRuAudioTextWarmup) =>
+        set({ experimentalRuAudioTextWarmup }),
       setSoundwavePresetKey: (soundwavePresetKey) => set({ soundwavePresetKey }),
       setLanguageFilterEnabled: (languageFilterEnabled) => set({ languageFilterEnabled }),
       setPreferredLanguage: (preferredLanguage) => set({ preferredLanguage }),
       setSoundwaveGenreStrict: (soundwaveGenreStrict) => set({ soundwaveGenreStrict }),
       setSoundwaveSelectedGenres: (soundwaveSelectedGenres) => set({ soundwaveSelectedGenres }),
       setSoundwaveHideLiked: (soundwaveHideLiked) => set({ soundwaveHideLiked }),
-      resetTheme: () => set(DEFAULTS),
+      resetTheme: () =>
+        set({
+          accentColor: DEFAULTS.accentColor,
+          bgPrimary: DEFAULTS.bgPrimary,
+          themePreset: DEFAULTS.themePreset,
+          themeGradientEnabled: DEFAULTS.themeGradientEnabled,
+          themeGradientType: DEFAULTS.themeGradientType,
+          themeGradientColorA: DEFAULTS.themeGradientColorA,
+          themeGradientColorB: DEFAULTS.themeGradientColorB,
+          themeGradientColorC: DEFAULTS.themeGradientColorC,
+          themeGradientAngle: DEFAULTS.themeGradientAngle,
+          themeGradientAnimated: DEFAULTS.themeGradientAnimated,
+          themeGradientAnimation: DEFAULTS.themeGradientAnimation,
+          themeGradientSpeed: DEFAULTS.themeGradientSpeed,
+          themeGlowEnabled: DEFAULTS.themeGlowEnabled,
+          themeGlowIntensity: DEFAULTS.themeGlowIntensity,
+          themeGlowOpacity: DEFAULTS.themeGlowOpacity,
+          backgroundImage: DEFAULTS.backgroundImage,
+          backgroundOpacity: DEFAULTS.backgroundOpacity,
+          glassBlur: DEFAULTS.glassBlur,
+        }),
     }),
     {
       name: 'sc-settings',
       storage: createJSONStorage(() => tauriStorage),
-      version: 10,
+      version: 13,
       migrate: (persistedState) => {
         const state = (persistedState && typeof persistedState === 'object'
           ? persistedState
@@ -468,6 +544,18 @@ export const useSettingsStore = create<SettingsState>()(
         accentColor: s.accentColor,
         bgPrimary: s.bgPrimary,
         themePreset: s.themePreset,
+        themeGradientEnabled: s.themeGradientEnabled,
+        themeGradientType: s.themeGradientType,
+        themeGradientColorA: s.themeGradientColorA,
+        themeGradientColorB: s.themeGradientColorB,
+        themeGradientColorC: s.themeGradientColorC,
+        themeGradientAngle: s.themeGradientAngle,
+        themeGradientAnimated: s.themeGradientAnimated,
+        themeGradientAnimation: s.themeGradientAnimation,
+        themeGradientSpeed: s.themeGradientSpeed,
+        themeGlowEnabled: s.themeGlowEnabled,
+        themeGlowIntensity: s.themeGlowIntensity,
+        themeGlowOpacity: s.themeGlowOpacity,
         backgroundImage: s.backgroundImage,
         backgroundOpacity: s.backgroundOpacity,
         glassBlur: s.glassBlur,
@@ -506,6 +594,7 @@ export const useSettingsStore = create<SettingsState>()(
         showFpsCounter: s.showFpsCounter,
         hardwareAcceleration: s.hardwareAcceleration,
         classicPlaybar: s.classicPlaybar,
+        experimentalRuAudioTextWarmup: s.experimentalRuAudioTextWarmup,
         soundwavePresetKey: s.soundwavePresetKey,
         // Visualizer settings
         visualizerStyle: s.visualizerStyle,

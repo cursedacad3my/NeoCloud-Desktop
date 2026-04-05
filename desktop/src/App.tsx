@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Component, type ErrorInfo, type ReactNode, useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { useShallow } from 'zustand/shallow';
@@ -6,6 +6,7 @@ import { AppShell } from './components/layout/AppShell';
 import { ThemeProvider } from './components/ThemeProvider';
 import { UpdateChecker } from './components/UpdateChecker';
 import { ApiError, setSessionExpiredHandler, setUnauthorizedHandler } from './lib/api';
+import { hasAuthHydrated } from './lib/auth-hydration';
 import { Home } from './pages/Home';
 import { Library } from './pages/Library';
 import { Login } from './pages/Login';
@@ -18,13 +19,78 @@ import { UserPage } from './pages/UserPage';
 import { useAppStatusStore } from './stores/app-status';
 import { useAuthStore } from './stores/auth';
 
-export default function App() {
-  const { isAuthenticated, sessionId, fetchUser, logout } = useAuthStore(
+const AUTH_BOOTSTRAP_TIMEOUT_MS = 12000;
+
+function AppBootScreen({ label }: { label: string }) {
+  return (
+    <div className="h-screen relative overflow-hidden bg-[rgb(8,8,10)] text-white">
+      <div className="absolute inset-0">
+        <div className="absolute -top-16 left-[12%] h-72 w-72 rounded-full bg-accent/[0.12] blur-[120px]" />
+        <div className="absolute bottom-0 right-[10%] h-80 w-80 rounded-full bg-cyan-400/[0.08] blur-[140px]" />
+      </div>
+      <div className="relative flex h-full items-center justify-center">
+        <div className="flex w-full max-w-sm flex-col items-center gap-4 rounded-[28px] border border-white/8 bg-white/[0.04] px-7 py-8 text-center backdrop-blur-xl">
+          <div className="h-10 w-10 rounded-full border-2 border-white/10 border-t-accent animate-spin" />
+          <div className="space-y-1">
+            <div className="text-sm font-semibold tracking-tight text-white/92">SoundCloud Desktop</div>
+            <div className="text-xs text-white/45">{label}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type AppErrorBoundaryState = {
+  error: Error | null;
+};
+
+class AppErrorBoundary extends Component<{ children: ReactNode }, AppErrorBoundaryState> {
+  state: AppErrorBoundaryState = { error: null };
+
+  static getDerivedStateFromError(error: Error): AppErrorBoundaryState {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('[App] Render crash:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="h-screen relative overflow-hidden bg-[rgb(8,8,10)] text-white">
+          <div className="absolute inset-0">
+            <div className="absolute top-[12%] left-[10%] h-72 w-72 rounded-full bg-red-500/[0.12] blur-[120px]" />
+            <div className="absolute bottom-[8%] right-[10%] h-80 w-80 rounded-full bg-accent/[0.08] blur-[140px]" />
+          </div>
+          <div className="relative flex h-full items-center justify-center p-6">
+            <div className="w-full max-w-lg rounded-[28px] border border-white/8 bg-white/[0.04] px-7 py-8 backdrop-blur-xl">
+              <div className="text-lg font-semibold tracking-tight text-white/92">Renderer crashed</div>
+              <div className="mt-2 text-sm text-white/55">
+                The app hit a React error before the main UI finished rendering.
+              </div>
+              <pre className="mt-4 overflow-auto rounded-2xl border border-white/8 bg-black/20 p-4 text-xs text-white/70">
+                {this.state.error.stack || this.state.error.message}
+              </pre>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+function AppInner() {
+  const { isAuthenticated, sessionId, reloginRequestId, fetchUser, beginRelogin } = useAuthStore(
     useShallow((s) => ({
       isAuthenticated: s.isAuthenticated,
       sessionId: s.sessionId,
+      reloginRequestId: s.reloginRequestId,
       fetchUser: s.fetchUser,
-      logout: s.logout,
+      beginRelogin: s.beginRelogin,
     })),
   );
   const appMode = useAppStatusStore((s) =>
@@ -35,6 +101,7 @@ export default function App() {
         : 'online',
   );
   const [checking, setChecking] = useState(true);
+  const [authHydrated, setAuthHydrated] = useState(() => useAuthStore.persist.hasHydrated());
 
   useEffect(() => {
     const syncOnline = () => {
@@ -57,23 +124,39 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (useAuthStore.persist.hasHydrated() || hasAuthHydrated()) {
+      setAuthHydrated(true);
+      return;
+    }
+
+    const unsubscribe = useAuthStore.persist.onFinishHydration(() => {
+      setAuthHydrated(true);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
     setUnauthorizedHandler(() => {
-      useAppStatusStore.getState().setBackendReachable(false);
-      logout();
+      useAuthStore.getState().beginRelogin();
     });
 
     setSessionExpiredHandler(() => {
-      useAppStatusStore.getState().resetConnectivity();
-      logout();
+      useAuthStore.getState().beginRelogin();
     });
 
     return () => {
       setUnauthorizedHandler(null);
       setSessionExpiredHandler(null);
     };
-  }, [logout]);
+  }, [beginRelogin]);
 
   useEffect(() => {
+    if (!authHydrated) {
+      setChecking(true);
+      return;
+    }
+
     if (appMode !== 'online') {
       setChecking(false);
       return;
@@ -81,30 +164,36 @@ export default function App() {
 
     if (sessionId) {
       setChecking(true);
-      fetchUser()
+      fetchUser({ timeoutMs: AUTH_BOOTSTRAP_TIMEOUT_MS })
         .catch((error) => {
           if (error instanceof ApiError && error.status === 401) {
-            useAppStatusStore.getState().setBackendReachable(false);
+            console.warn('[Auth] Stored session was rejected, reopening login');
+            useAppStatusStore.getState().setBackendReachable(true);
+            useAuthStore.getState().beginRelogin();
             return;
           }
 
-          console.warn('[Auth] Keeping local session after /me bootstrap failure:', error);
+          if (error instanceof Error && error.name === 'AbortError') {
+            console.warn('[Auth] /me bootstrap timed out, keeping local session');
+            useAppStatusStore.getState().setBackendReachable(true);
+            useAuthStore.setState({ isAuthenticated: true });
+            return;
+          }
+
+          console.warn('[Auth] Failed to restore /me, keeping local session:', error);
+          useAppStatusStore.getState().setBackendReachable(true);
           useAuthStore.setState({ isAuthenticated: true });
         })
         .finally(() => setChecking(false));
     } else {
       setChecking(false);
     }
-  }, [appMode, fetchUser, logout, sessionId]);
+  }, [appMode, authHydrated, beginRelogin, fetchUser, sessionId]);
 
   const showOfflineShell = appMode !== 'online';
 
-  if (checking && !showOfflineShell) {
-    return (
-      <div className="h-screen flex items-center justify-center">
-        <div className="w-5 h-5 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+  if ((!authHydrated || checking) && !showOfflineShell) {
+    return <AppBootScreen label={sessionId ? 'Restoring your session...' : 'Starting app...'} />;
   }
 
   return (
@@ -135,7 +224,7 @@ export default function App() {
             </Route>
           </Routes>
         ) : !isAuthenticated ? (
-          <Login />
+          <Login autoStartRequestId={reloginRequestId} />
         ) : (
           <Routes>
             <Route element={<AppShell />}>
@@ -152,5 +241,13 @@ export default function App() {
         )}
       </BrowserRouter>
     </ThemeProvider>
+  );
+}
+
+export default function App() {
+  return (
+    <AppErrorBoundary>
+      <AppInner />
+    </AppErrorBoundary>
   );
 }

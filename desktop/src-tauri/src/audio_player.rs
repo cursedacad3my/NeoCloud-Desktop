@@ -1,7 +1,7 @@
 use std::io::Cursor;
 use std::num::NonZero;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
@@ -25,7 +25,10 @@ const EQ_FREQS: [f64; EQ_BANDS] = [
     30.0, 60.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 14000.0,
 ];
 const EQ_Q: f64 = 1.414; // ~1 octave bandwidth for peaking filters
-const TICK_INTERVAL_MS: u64 = 100;
+const DEFAULT_TARGET_FPS: u32 = 60;
+const MIN_TARGET_FPS: u32 = 15;
+const MAX_TARGET_FPS: u32 = 240;
+const UNLOCKED_EVENT_FPS: u32 = 144;
 const NORMALIZATION_ANALYSIS_SAMPLES: usize = 48_000 * 2 * 30;
 const NORMALIZATION_BLOCK_SAMPLES: usize = 48_000;
 const NORMALIZATION_TARGET_RMS: f64 = 0.14;
@@ -623,6 +626,28 @@ pub struct AudioState {
     source_bytes: Mutex<Option<Vec<u8>>>,
     seek_in_progress: AtomicBool,
     pub visualizer_tx: Mutex<Option<std::sync::mpsc::SyncSender<Vec<f32>>>>,
+    pub frame_target: AtomicU32,
+    pub frame_unlocked: AtomicBool,
+    pub window_visible: AtomicBool,
+}
+
+fn clamp_target_fps(target: u32) -> u32 {
+    target.clamp(MIN_TARGET_FPS, MAX_TARGET_FPS)
+}
+
+fn current_event_interval_ms(state: &AudioState) -> u64 {
+    if !state.window_visible.load(Ordering::Relaxed) {
+        return 250;
+    }
+    let unlocked = state.frame_unlocked.load(Ordering::Relaxed);
+    let target = clamp_target_fps(state.frame_target.load(Ordering::Relaxed));
+    let fps = if unlocked { UNLOCKED_EVENT_FPS } else { target };
+    ((1000.0 / fps as f64).round() as u64).max(1)
+}
+
+pub fn set_framerate_config(state: &AudioState, target: u32, unlocked: bool) {
+    state.frame_target.store(clamp_target_fps(target), Ordering::Relaxed);
+    state.frame_unlocked.store(unlocked, Ordering::Relaxed);
 }
 
 fn open_device_sink(
@@ -765,6 +790,9 @@ pub fn init() -> AudioState {
         source_bytes: Mutex::new(None),
         seek_in_progress: AtomicBool::new(false),
         visualizer_tx: Mutex::new(None),
+        frame_target: AtomicU32::new(DEFAULT_TARGET_FPS),
+        frame_unlocked: AtomicBool::new(false),
+        window_visible: AtomicBool::new(true),
     }
 }
 
@@ -774,8 +802,8 @@ pub fn start_tick_emitter(app: &AppHandle) {
     std::thread::Builder::new()
         .name("audio-tick".into())
         .spawn(move || loop {
-            std::thread::sleep(Duration::from_millis(TICK_INTERVAL_MS));
             let state = handle.state::<AudioState>();
+            std::thread::sleep(Duration::from_millis(current_event_interval_ms(&state)));
 
             // Check if audio device was reconnected (e.g. BT profile switch)
             if state.device_reconnected.swap(false, Ordering::Relaxed) {
@@ -1127,14 +1155,6 @@ pub async fn audio_load_url(
         return Ok(empty_result);
     }
 
-    // Cache in background
-    if let Some(path) = cache_path {
-        let data = bytes.clone();
-        tokio::spawn(async move {
-            tokio::fs::write(&path, &data).await.ok();
-        });
-    }
-
     // Decode and play
     let mixer = state.mixer.lock().unwrap().clone();
     let vol = *state.volume.lock().unwrap();
@@ -1217,6 +1237,13 @@ pub async fn audio_load_url(
     // Stale check again after processing stops
     if state.load_gen.load(Ordering::Relaxed) != gen {
         return Ok(empty_result);
+    }
+
+    if let Some(path) = cache_path {
+        let data = bytes.clone();
+        tokio::spawn(async move {
+            tokio::fs::write(&path, &data).await.ok();
+        });
     }
 
     *state.player.lock().unwrap() = Some(new_player);
@@ -1628,7 +1655,11 @@ pub fn start_visualizer_thread(app: &AppHandle) {
             }
 
             while let Ok(samples) = rx.recv() {
-                if last_emit_at.elapsed() < Duration::from_millis(66) {
+                let state = handle.state::<AudioState>();
+                if !state.window_visible.load(Ordering::Relaxed) {
+                    continue;
+                }
+                if last_emit_at.elapsed() < Duration::from_millis(current_event_interval_ms(&state)) {
                     continue;
                 }
 

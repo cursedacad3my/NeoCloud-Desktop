@@ -23,6 +23,7 @@ import { listen } from '@tauri-apps/api/event';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { Pause, Play, Settings } from '../../lib/icons';
+import { isAppBackgrounded } from '../../lib/app-visibility';
 import { SUPPORTED_LANGUAGES } from '../../lib/language-detection';
 import { usePlayerStore } from '../../stores/player';
 import { useSettingsStore } from '../../stores/settings';
@@ -399,7 +400,7 @@ export const SoundWaveHero: React.FC = () => {
         return;
       }
 
-      if (document.visibilityState === 'hidden') {
+      if (isAppBackgrounded()) {
         animationFrameId = requestAnimationFrame(draw);
         return;
       }
@@ -593,6 +594,13 @@ export const SoundWaveHero: React.FC = () => {
     }
   };
 
+  const handleToggleHideLiked = () => {
+    setSoundwaveHideLiked(!soundwaveHideLiked);
+    if (isActive) {
+      setShowRestartAfterLanguageChange(true);
+    }
+  };
+
   const selectedLanguage = SUPPORTED_LANGUAGES.find((lang) => lang.code === preferredLanguage);
   const selectedLanguageFlagUrl =
     preferredLanguage === 'all' ? null : getLanguageFlagUrl(preferredLanguage);
@@ -635,13 +643,11 @@ export const SoundWaveHero: React.FC = () => {
         ? selectedGenreLabels[0]
         : t('settings.genreFilterSelected', { count: selectedGenreLabels.length });
   const enabledHeroToggleClass =
-    'bg-accent/25 hover:bg-accent/35 text-white border-accent/45 shadow-[0_0_20px_var(--color-accent-glow)] hover:brightness-110';
-  const enabledHeroToggleStyle: React.CSSProperties = {
-    backgroundColor: 'color-mix(in oklab, var(--color-accent) 26%, rgba(255,255,255,0.08))',
-    borderColor: 'color-mix(in oklab, var(--color-accent) 44%, rgba(255,255,255,0.14))',
-  };
+    'theme-accent-soft theme-accent-animated text-white border-white/15 hover:brightness-110';
   const heroSecondaryButtonClass =
     'flex items-center gap-2 px-5 py-2.5 rounded-full bg-white/10 border border-white/10 text-white/70 text-sm font-medium transition-all duration-300 hover:bg-white/20 hover:text-white active:scale-95';
+  const likedToggleActiveClass =
+    'border-rose-400/30 bg-rose-500/14 text-rose-100 shadow-[0_0_18px_rgba(244,63,94,0.18)] hover:bg-rose-500/18 hover:text-white';
 
   return (
     <div className="relative w-full h-[220px] rounded-3xl overflow-hidden group/sw border border-white/[0.04] shadow-2xl bg-[#0a0a0c]">
@@ -652,7 +658,7 @@ export const SoundWaveHero: React.FC = () => {
           <div className="px-1 py-1">
             <div className="h-1.5 w-full bg-white/12 overflow-hidden">
               <div
-                className="h-full bg-accent shadow-[0_0_16px_var(--color-accent-glow)] transition-[width] duration-500 ease-out"
+                className="h-full theme-accent-progress theme-accent-animated transition-[width] duration-500 ease-out"
                 style={{ width: `${Math.max(0, Math.min(100, progressValue))}%` }}
               />
             </div>
@@ -673,16 +679,18 @@ export const SoundWaveHero: React.FC = () => {
           <h2 className="text-xl font-bold text-white/90 tracking-wide drop-shadow-md flex items-center gap-2">
             {isActive ? `Волна: ${currentPreset?.name}` : 'СаундВолна'}
             {isSuspended && (
-              <span className="rounded-full border border-accent/35 bg-accent/12 px-2 py-0.5 text-[10px] font-semibold text-white/80">
+              <span className="theme-accent-soft theme-accent-animated rounded-full border px-2 py-0.5 text-[10px] font-semibold text-white/80">
                 {t('settings.languageWaveCaching')}
               </span>
             )}
           </h2>
 
           {hasGenreSubtitle && (
-            <p className="max-w-[360px] truncate text-[11px] text-white/45 text-center font-medium">
-              {t('settings.genreFilterTitle')}: {selectedGenresSummary}
-            </p>
+            <div className="flex max-w-[360px] flex-wrap items-center justify-center gap-2">
+              <span className="max-w-full truncate rounded-full border border-white/10 bg-white/8 px-3 py-1 text-[11px] font-medium text-white/55">
+                {t('settings.genreFilterTitle')}: {selectedGenresSummary}
+              </span>
+            </div>
           )}
         </div>
 
@@ -723,7 +731,7 @@ export const SoundWaveHero: React.FC = () => {
             <button
               type="button"
               onClick={() => runWaveWithLoading(selectedPreset)}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-accent hover:bg-accent-hover text-accent-contrast text-sm font-semibold transition-all duration-300 active:scale-95 shadow-[0_0_18px_var(--color-accent-glow)]"
+              className="theme-accent-fill theme-accent-animated flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 active:scale-95"
             >
               <RefreshCw size={14} />
               <span>{t('settings.restartWave')}</span>
@@ -734,14 +742,13 @@ export const SoundWaveHero: React.FC = () => {
 
       <div className="absolute bottom-3 right-3 z-20 flex flex-col items-end gap-2">
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleToggleGenreStrict}
-            className={`${heroSecondaryButtonClass} ${
-              soundwaveGenreStrict ? enabledHeroToggleClass : 'text-white/60 hover:text-white'
-            }`}
-            style={soundwaveGenreStrict ? enabledHeroToggleStyle : undefined}
-          >
+            <button
+              type="button"
+              onClick={handleToggleGenreStrict}
+              className={`${heroSecondaryButtonClass} ${
+                soundwaveGenreStrict ? enabledHeroToggleClass : 'text-white/60 hover:text-white'
+              }`}
+            >
             {soundwaveGenreStrict
               ? t('settings.genreFilterStrictOn')
               : t('settings.genreFilterStrictOff')}
@@ -758,7 +765,7 @@ export const SoundWaveHero: React.FC = () => {
               }}
               className={`${heroSecondaryButtonClass} max-w-[220px] ${
                 soundwaveSelectedGenres.length > 0
-                  ? 'bg-accent/12 border-accent/35 text-white/90 shadow-[0_0_12px_var(--color-accent-glow)]'
+                  ? 'theme-accent-soft theme-accent-animated border-white/15 text-white/90'
                   : ''
               }`}
             >
@@ -858,7 +865,6 @@ export const SoundWaveHero: React.FC = () => {
             className={`${heroSecondaryButtonClass} ${
               languageFilterEnabled ? enabledHeroToggleClass : 'text-white/60 hover:text-white'
             }`}
-            style={languageFilterEnabled ? enabledHeroToggleStyle : undefined}
           >
             {languageFilterEnabled
               ? t('settings.languageWaveEnabled')
@@ -969,6 +975,28 @@ export const SoundWaveHero: React.FC = () => {
                 document.body,
               )}
           </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleToggleHideLiked}
+            className={`${heroSecondaryButtonClass} ${
+              soundwaveHideLiked ? likedToggleActiveClass : 'text-white/60 hover:text-white'
+            }`}
+          >
+            <span
+              className={`relative flex h-4 w-4 items-center justify-center ${
+                soundwaveHideLiked ? 'text-rose-400' : 'text-white/55'
+              }`}
+            >
+              <Heart size={13} fill={soundwaveHideLiked ? 'currentColor' : 'none'} strokeWidth={1.8} />
+              {soundwaveHideLiked && (
+                <span className="pointer-events-none absolute h-[1.5px] w-[15px] rotate-[-38deg] rounded-full bg-rose-200" />
+              )}
+            </span>
+            <span>{t('settings.soundwaveWithoutLikedBadge')}</span>
+          </button>
         </div>
       </div>
 
@@ -1132,7 +1160,7 @@ export const SoundWaveHero: React.FC = () => {
                     }}
                     className={`px-3 py-1 rounded-full text-[10px] font-bold transition-all ${
                       languageFilterEnabled
-                        ? 'bg-accent hover:bg-accent-hover text-accent-contrast shadow-[0_0_16px_var(--color-accent-glow)]'
+                        ? 'theme-accent-fill theme-accent-animated'
                         : 'bg-white/10 text-white/50 hover:text-white'
                     }`}
                   >
@@ -1201,7 +1229,7 @@ export const SoundWaveHero: React.FC = () => {
                     onClick={handleToggleGenreStrict}
                     className={`px-3 py-1 rounded-full text-[10px] font-bold transition-all ${
                       soundwaveGenreStrict
-                        ? 'bg-accent hover:bg-accent-hover text-accent-contrast shadow-[0_0_16px_var(--color-accent-glow)]'
+                        ? 'theme-accent-fill theme-accent-animated'
                         : 'bg-white/10 text-white/50 hover:text-white'
                     }`}
                   >
@@ -1217,10 +1245,10 @@ export const SoundWaveHero: React.FC = () => {
                   <span className="text-[11px] text-white/55">{t('settings.soundwaveHideLiked')}</span>
                   <button
                     type="button"
-                    onClick={() => setSoundwaveHideLiked(!soundwaveHideLiked)}
+                    onClick={handleToggleHideLiked}
                     className={`px-3 py-1 rounded-full text-[10px] font-bold transition-all ${
                       soundwaveHideLiked
-                        ? 'bg-accent hover:bg-accent-hover text-accent-contrast shadow-[0_0_16px_var(--color-accent-glow)]'
+                        ? 'theme-accent-fill theme-accent-animated'
                         : 'bg-white/10 text-white/50 hover:text-white'
                     }`}
                   >

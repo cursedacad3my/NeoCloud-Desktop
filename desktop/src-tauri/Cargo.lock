@@ -3736,6 +3736,7 @@ dependencies = [
  "js-sys",
  "log",
  "mime",
+ "mime_guess",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -4400,7 +4401,7 @@ dependencies = [
 
 [[package]]
 name = "soundcloud-desktop"
-version = "6.1.14"
+version = "6.1.16"
 dependencies = [
  "audiopus",
  "base64 0.22.1",
@@ -4419,6 +4420,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "souvlaki",
+ "symphonia",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
@@ -4429,6 +4431,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "tokio",
+ "tokio-tungstenite",
  "urlencoding",
  "warp",
 ]

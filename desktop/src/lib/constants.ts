@@ -1,6 +1,7 @@
 import { useSettingsStore } from '../stores/settings';
 
-export const DEFAULT_API_BASE = import.meta.env.VITE_API_BASE || 'https://api.soundcloud.su';
+export const API_BASE = import.meta.env.VITE_API_BASE || 'https://api.soundcloud.su';
+export const DEFAULT_API_BASE = API_BASE;
 export const LOCAL_API_BASE = 'http://localhost:3000';
 
 export function normalizeApiBase(value: string) {
@@ -22,7 +23,7 @@ export function getApiBase() {
   if (apiMode === 'custom') {
     return LOCAL_API_BASE;
   }
-  return DEFAULT_API_BASE;
+  return API_BASE;
 }
 
 export function buildApiUrl(path: string) {

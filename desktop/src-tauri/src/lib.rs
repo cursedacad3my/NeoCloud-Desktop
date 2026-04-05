@@ -10,8 +10,9 @@ mod tray;
 mod ym_import;
 mod ytmusic_import;
 
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 use discord::DiscordState;
 use server::ServerState;
@@ -24,6 +25,14 @@ fn save_framerate_config(app: tauri::AppHandle, target: u32, unlocked: bool) {
         let json = format!(r#"{{"target": {}, "unlocked": {}}}"#, target, unlocked);
         std::fs::write(&config_path, json).ok();
     }
+    let state = app.state::<audio_player::AudioState>();
+    audio_player::set_framerate_config(&state, target, unlocked);
+}
+
+pub(crate) fn emit_window_visibility(app: &tauri::AppHandle, visible: bool) {
+    let state = app.state::<audio_player::AudioState>();
+    state.window_visible.store(visible, Ordering::Relaxed);
+    let _ = app.emit("app:window-visibility", visible);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -36,6 +45,7 @@ pub fn run() {
                 let _ = w.show();
                 let _ = w.unminimize();
                 let _ = w.set_focus();
+                emit_window_visibility(app, true);
             }
         }))
         .plugin(tauri_plugin_opener::init())
@@ -146,6 +156,7 @@ pub fn run() {
             }));
 
             let audio_state = audio_player::init();
+            audio_player::set_framerate_config(&audio_state, target, unlocked);
             app.manage(audio_state);
             app.manage(spotify_import::SpotifyState::new());
             app.manage(ytmusic_import::YtMusicState::new());
@@ -161,6 +172,7 @@ pub fn run() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();
+                emit_window_visibility(&window.app_handle(), false);
             }
         })
         .invoke_handler(tauri::generate_handler![

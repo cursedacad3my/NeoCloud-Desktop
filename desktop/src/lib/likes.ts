@@ -44,6 +44,10 @@ export function isUrnLiked(urn: string): boolean {
   return _likedUrns.has(urn);
 }
 
+export function getLikedUrnsSnapshot(): Set<string> {
+  return new Set(_likedUrns.keys());
+}
+
 /** React hook — subscribes to like status for a specific URN */
 export function useLiked(urn: string): boolean {
   return useSyncExternalStore(

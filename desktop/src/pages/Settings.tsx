@@ -29,6 +29,8 @@ import {
   useSettingsStore,
   type DiscordRpcButtonMode,
   type DiscordRpcMode,
+  type ThemeGradientAnimation,
+  type ThemeGradientType,
 } from '../stores/settings';
 
 function formatBytes(bytes: number): string {
@@ -37,6 +39,24 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function normalizeHexColor(hex: string): string {
+  const value = hex.trim();
+  if (/^#[0-9a-f]{6}$/i.test(value)) return value;
+  if (/^#[0-9a-f]{3}$/i.test(value)) {
+    const [, r, g, b] = value;
+    return `#${r}${r}${g}${g}${b}${b}`;
+  }
+  return '#ffffff';
+}
+
+function hexToRgba(hex: string, alpha: number): string {
+  const normalized = normalizeHexColor(hex);
+  const r = Number.parseInt(normalized.slice(1, 3), 16);
+  const g = Number.parseInt(normalized.slice(3, 5), 16);
+  const b = Number.parseInt(normalized.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, alpha))})`;
 }
 
 const PRESET_COLORS = [
@@ -508,19 +528,138 @@ const WallpaperPicker = React.memo(function WallpaperPicker() {
 /* ── Theme Section ──────────────────────────────────────── */
 
 const THEME_PRESET_KEYS = ['soundcloud', 'dark', 'neon', 'forest', 'crimson'] as const;
+const THEME_GRADIENT_TYPES: Array<{ id: ThemeGradientType; labelKey: string }> = [
+  { id: 'linear', labelKey: 'settings.themeGradientTypeLinear' },
+  { id: 'radial', labelKey: 'settings.themeGradientTypeRadial' },
+];
+
+const THEME_GRADIENT_ANIMATIONS: Array<{ id: ThemeGradientAnimation; labelKey: string }> = [
+  { id: 'flow', labelKey: 'settings.themeGradientAnimationFlow' },
+  { id: 'pulse', labelKey: 'settings.themeGradientAnimationPulse' },
+  { id: 'breathe', labelKey: 'settings.themeGradientAnimationBreathe' },
+];
+
+const THEME_SLIDER_CLASSNAME =
+  'w-full accent-[var(--color-accent)] h-1 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg';
+
+function ThemeOptionChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3 py-2 rounded-xl text-[12px] font-semibold transition-all duration-200 cursor-pointer border ${
+        active
+          ? 'bg-white/[0.1] text-white/90 border-white/[0.15] shadow-[0_0_20px_var(--color-accent-glow)]'
+          : 'bg-white/[0.03] text-white/45 border-white/[0.06] hover:bg-white/[0.06] hover:text-white/70'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ThemeColorField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <label className="text-[13px] text-white/50 font-medium">{label}</label>
+        <span className="text-[11px] text-white/30 font-mono uppercase tracking-wide">
+          {value}
+        </span>
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        {PRESET_COLORS.map((color) => (
+          <button
+            key={`${label}-${color}`}
+            onClick={() => onChange(color)}
+            className="w-8 h-8 rounded-full border-2 transition-all duration-200 cursor-pointer hover:scale-110 active:scale-95 shadow-md"
+            style={{
+              backgroundColor: color,
+              borderColor: value === color ? 'white' : 'transparent',
+              boxShadow: value === color ? `0 0 16px ${color}60` : undefined,
+            }}
+          />
+        ))}
+        <button
+          onClick={() => inputRef.current?.click()}
+          className="w-8 h-8 rounded-full border-2 border-dashed border-white/20 hover:border-white/40 transition-all cursor-pointer flex items-center justify-center text-white/30 hover:text-white/60 hover:scale-110"
+        >
+          <span className="text-[11px] font-bold">+</span>
+        </button>
+        <input
+          ref={inputRef}
+          type="color"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="sr-only"
+        />
+      </div>
+    </div>
+  );
+}
 
 const ThemeSection = React.memo(function ThemeSection() {
   const { t } = useTranslation();
   const accentColor = useSettingsStore((s) => s.accentColor);
+  const bgPrimary = useSettingsStore((s) => s.bgPrimary);
   const themePreset = useSettingsStore((s) => s.themePreset);
+  const themeGradientEnabled = useSettingsStore((s) => s.themeGradientEnabled);
+  const themeGradientType = useSettingsStore((s) => s.themeGradientType);
+  const themeGradientColorA = useSettingsStore((s) => s.themeGradientColorA);
+  const themeGradientColorB = useSettingsStore((s) => s.themeGradientColorB);
+  const themeGradientColorC = useSettingsStore((s) => s.themeGradientColorC);
+  const themeGradientAngle = useSettingsStore((s) => s.themeGradientAngle);
+  const themeGradientAnimated = useSettingsStore((s) => s.themeGradientAnimated);
+  const themeGradientAnimation = useSettingsStore((s) => s.themeGradientAnimation);
+  const themeGradientSpeed = useSettingsStore((s) => s.themeGradientSpeed);
+  const themeGlowEnabled = useSettingsStore((s) => s.themeGlowEnabled);
+  const themeGlowIntensity = useSettingsStore((s) => s.themeGlowIntensity);
+  const themeGlowOpacity = useSettingsStore((s) => s.themeGlowOpacity);
   const backgroundImage = useSettingsStore((s) => s.backgroundImage);
   const backgroundOpacity = useSettingsStore((s) => s.backgroundOpacity);
   const setAccentColor = useSettingsStore((s) => s.setAccentColor);
+  const setBgPrimary = useSettingsStore((s) => s.setBgPrimary);
   const setThemePreset = useSettingsStore((s) => s.setThemePreset);
+  const setThemeGradientEnabled = useSettingsStore((s) => s.setThemeGradientEnabled);
+  const setThemeGradientType = useSettingsStore((s) => s.setThemeGradientType);
+  const setThemeGradientColorA = useSettingsStore((s) => s.setThemeGradientColorA);
+  const setThemeGradientColorB = useSettingsStore((s) => s.setThemeGradientColorB);
+  const setThemeGradientColorC = useSettingsStore((s) => s.setThemeGradientColorC);
+  const setThemeGradientAngle = useSettingsStore((s) => s.setThemeGradientAngle);
+  const setThemeGradientAnimated = useSettingsStore((s) => s.setThemeGradientAnimated);
+  const setThemeGradientAnimation = useSettingsStore((s) => s.setThemeGradientAnimation);
+  const setThemeGradientSpeed = useSettingsStore((s) => s.setThemeGradientSpeed);
+  const setThemeGlowEnabled = useSettingsStore((s) => s.setThemeGlowEnabled);
+  const setThemeGlowIntensity = useSettingsStore((s) => s.setThemeGlowIntensity);
+  const setThemeGlowOpacity = useSettingsStore((s) => s.setThemeGlowOpacity);
   const setBackgroundOpacity = useSettingsStore((s) => s.setBackgroundOpacity);
   const resetTheme = useSettingsStore((s) => s.resetTheme);
 
-  const colorInputRef = useRef<HTMLInputElement>(null);
+  const previewAccentGradient = themeGradientEnabled
+    ? themeGradientType === 'radial'
+      ? `radial-gradient(circle at 24% 18%, ${themeGradientColorA} 0%, ${themeGradientColorB} 46%, ${themeGradientColorC} 100%)`
+      : `linear-gradient(${themeGradientAngle}deg, ${themeGradientColorA} 0%, ${themeGradientColorB} 46%, ${themeGradientColorC} 100%)`
+    : `linear-gradient(135deg, ${accentColor} 0%, ${accentColor} 100%)`;
+  const previewGlow = themeGlowEnabled
+    ? `0 0 ${Math.round(28 + themeGlowIntensity * 0.46)}px ${hexToRgba(accentColor, 0.1 + themeGlowOpacity / 100 * 0.22)}`
+    : undefined;
 
   return (
     <section className="bg-white/[0.02] border border-white/[0.05] backdrop-blur-[60px] rounded-3xl p-6 shadow-xl space-y-6">
@@ -536,7 +675,6 @@ const ThemeSection = React.memo(function ThemeSection() {
         </button>
       </div>
 
-      {/* Theme Presets */}
       <div className="space-y-3">
         <label className="text-[13px] text-white/50 font-medium">{t('settings.themePreset')}</label>
         <div className="grid grid-cols-3 gap-3">
@@ -577,10 +715,7 @@ const ThemeSection = React.memo(function ThemeSection() {
             );
           })}
           <button
-            onClick={() => {
-              setThemePreset('custom');
-              colorInputRef.current?.click();
-            }}
+            onClick={() => setThemePreset('custom')}
             className={`group relative rounded-2xl overflow-hidden border border-dashed transition-all duration-200 cursor-pointer hover:scale-[1.03] active:scale-[0.97] ${
               themePreset === 'custom'
                 ? 'border-white/30 bg-white/[0.04]'
@@ -603,46 +738,294 @@ const ThemeSection = React.memo(function ThemeSection() {
         </div>
       </div>
 
-      {/* Accent Color (for custom) */}
       {themePreset === 'custom' && (
-        <div className="space-y-3">
-          <label className="text-[13px] text-white/50 font-medium">
-            {t('settings.accentColor')}
-          </label>
-          <div className="flex items-center gap-2 flex-wrap">
-            {PRESET_COLORS.map((color) => (
-              <button
-                key={color}
-                onClick={() => setAccentColor(color)}
-                className="w-8 h-8 rounded-full border-2 transition-all duration-200 cursor-pointer hover:scale-110 active:scale-95 shadow-md"
+        <div className="space-y-6">
+          <div
+            className="relative overflow-hidden rounded-3xl border border-white/10 p-5"
+            style={{
+              background: bgPrimary,
+            }}
+          >
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.05),transparent_55%)]" />
+            <div className="relative z-10 space-y-3">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-black/25 px-3 py-1 text-[11px] uppercase tracking-[0.16em] text-white/65">
+                {t('settings.themeCustom')}
+              </div>
+              <div className="max-w-sm">
+                <div className="text-[24px] font-bold text-white tracking-tight">
+                  {t('settings.themePreview')}
+                </div>
+                <div className="text-[13px] text-white/70 mt-1">
+                  {t('settings.themePreviewDesc')}
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <div
+                  className="h-10 w-10 rounded-2xl border border-white/15"
+                  style={{
+                    background: previewAccentGradient,
+                    boxShadow: previewGlow,
+                  }}
+                />
+                <div className="flex-1 rounded-2xl border border-white/12 bg-white/8 px-4 py-3 backdrop-blur-xl">
+                  <div className="text-[13px] font-semibold text-white/90">
+                    {t('settings.themePreviewCard')}
+                  </div>
+                  <div className="text-[12px] text-white/55">
+                    {t('settings.themePreviewCardDesc')}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <div
+                  className="h-3 flex-1 rounded-full"
+                  style={{
+                    background: previewAccentGradient,
+                    boxShadow: previewGlow,
+                    backgroundSize: themeGradientAnimated ? '180% 180%' : '100% 100%',
+                  }}
+                />
+                <div
+                  className="rounded-full px-3 py-1 text-[11px] font-semibold text-white"
+                  style={{
+                    background: previewAccentGradient,
+                    boxShadow: previewGlow,
+                    border: '1px solid rgba(255,255,255,0.12)',
+                  }}
+                >
+                  {t('settings.themeGradient')}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-5 xl:grid-cols-2">
+            <ThemeColorField
+              label={t('settings.accentColor')}
+              value={accentColor}
+              onChange={setAccentColor}
+            />
+            <ThemeColorField
+              label={t('settings.bgPrimary')}
+              value={bgPrimary}
+              onChange={setBgPrimary}
+            />
+          </div>
+
+          <div className="space-y-4 rounded-3xl border border-white/[0.06] bg-white/[0.03] p-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <div className="text-[14px] font-semibold text-white/85">
+                  {t('settings.themeGradient')}
+                </div>
+                <div className="text-[12px] text-white/45 mt-1">
+                  {t('settings.themeGradientDesc')}
+                </div>
+              </div>
+              <ThemeOptionChip
+                active={themeGradientEnabled}
+                onClick={() => setThemeGradientEnabled(!themeGradientEnabled)}
+              >
+                {themeGradientEnabled ? t('eq.on') : t('eq.off')}
+              </ThemeOptionChip>
+            </div>
+
+            <div className="overflow-hidden rounded-2xl border border-white/[0.08]">
+              <div
+                className="h-28 w-full"
                 style={{
-                  backgroundColor: color,
-                  borderColor: accentColor === color ? 'white' : 'transparent',
-                  boxShadow: accentColor === color ? `0 0 16px ${color}60` : undefined,
+                  background: previewAccentGradient,
                 }}
               />
-            ))}
-            <button
-              onClick={() => colorInputRef.current?.click()}
-              className="w-8 h-8 rounded-full border-2 border-dashed border-white/20 hover:border-white/40 transition-all cursor-pointer flex items-center justify-center text-white/30 hover:text-white/60 hover:scale-110"
-            >
-              <span className="text-[11px] font-bold">+</span>
-            </button>
+            </div>
+
+            <div className="space-y-3">
+              <label className="text-[13px] text-white/50 font-medium">
+                {t('settings.themeGradientType')}
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {THEME_GRADIENT_TYPES.map((option) => (
+                  <ThemeOptionChip
+                    key={option.id}
+                    active={themeGradientType === option.id}
+                    onClick={() => setThemeGradientType(option.id)}
+                  >
+                    {t(option.labelKey)}
+                  </ThemeOptionChip>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid gap-5 xl:grid-cols-3">
+              <ThemeColorField
+                label={t('settings.themeGradientColorA')}
+                value={themeGradientColorA}
+                onChange={setThemeGradientColorA}
+              />
+              <ThemeColorField
+                label={t('settings.themeGradientColorB')}
+                value={themeGradientColorB}
+                onChange={setThemeGradientColorB}
+              />
+              <ThemeColorField
+                label={t('settings.themeGradientColorC')}
+                value={themeGradientColorC}
+                onChange={setThemeGradientColorC}
+              />
+            </div>
+
+            {themeGradientType === 'linear' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-[13px] text-white/50 font-medium">
+                    {t('settings.themeGradientAngle')}
+                  </label>
+                  <span className="text-[12px] text-white/30 tabular-nums">
+                    {themeGradientAngle}deg
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={360}
+                  step={1}
+                  value={themeGradientAngle}
+                  onChange={(e) => setThemeGradientAngle(Number(e.target.value))}
+                  className={THEME_SLIDER_CLASSNAME}
+                />
+              </div>
+            )}
+
+            <div className="space-y-4 rounded-2xl border border-white/[0.05] bg-black/10 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <div className="text-[13px] font-semibold text-white/82">
+                    {t('settings.themeGradientAnimated')}
+                  </div>
+                  <div className="text-[12px] text-white/42 mt-1">
+                    {t('settings.themeGradientAnimatedDesc')}
+                  </div>
+                </div>
+                <ThemeOptionChip
+                  active={themeGradientAnimated}
+                  onClick={() => setThemeGradientAnimated(!themeGradientAnimated)}
+                >
+                  {themeGradientAnimated ? t('eq.on') : t('eq.off')}
+                </ThemeOptionChip>
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-[13px] text-white/50 font-medium">
+                  {t('settings.themeGradientAnimation')}
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {THEME_GRADIENT_ANIMATIONS.map((option) => (
+                    <ThemeOptionChip
+                      key={option.id}
+                      active={themeGradientAnimation === option.id}
+                      onClick={() => setThemeGradientAnimation(option.id)}
+                    >
+                      {t(option.labelKey)}
+                    </ThemeOptionChip>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-[13px] text-white/50 font-medium">
+                    {t('settings.themeGradientSpeed')}
+                  </label>
+                  <span className="text-[12px] text-white/30 tabular-nums">
+                    {themeGradientSpeed}s
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={6}
+                  max={30}
+                  step={1}
+                  value={themeGradientSpeed}
+                  onChange={(e) => setThemeGradientSpeed(Number(e.target.value))}
+                  className={THEME_SLIDER_CLASSNAME}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4 rounded-3xl border border-white/[0.06] bg-white/[0.03] p-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <div className="text-[14px] font-semibold text-white/85">
+                  {t('settings.themeGlow')}
+                </div>
+                <div className="text-[12px] text-white/45 mt-1">
+                  {t('settings.themeGlowDesc')}
+                </div>
+              </div>
+              <ThemeOptionChip
+                active={themeGlowEnabled}
+                onClick={() => setThemeGlowEnabled(!themeGlowEnabled)}
+              >
+                {themeGlowEnabled ? t('eq.on') : t('eq.off')}
+              </ThemeOptionChip>
+            </div>
+
+            <div className="rounded-2xl border border-white/[0.08] bg-black/18 p-5">
+              <div
+                className="mx-auto h-14 max-w-[280px] rounded-2xl border border-white/10"
+                style={{
+                  background: `linear-gradient(135deg, ${hexToRgba(accentColor, 0.3)}, ${hexToRgba(accentColor, 0.08)})`,
+                  boxShadow: previewGlow,
+                }}
+              />
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-[13px] text-white/50 font-medium">
+                  {t('settings.themeGlowIntensity')}
+                </label>
+                <span className="text-[12px] text-white/30 tabular-nums">
+                  {themeGlowIntensity}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={themeGlowIntensity}
+                onChange={(e) => setThemeGlowIntensity(Number(e.target.value))}
+                className={THEME_SLIDER_CLASSNAME}
+              />
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-[13px] text-white/50 font-medium">
+                  {t('settings.themeGlowOpacity')}
+                </label>
+                <span className="text-[12px] text-white/30 tabular-nums">
+                  {themeGlowOpacity}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={themeGlowOpacity}
+                onChange={(e) => setThemeGlowOpacity(Number(e.target.value))}
+                className={THEME_SLIDER_CLASSNAME}
+              />
+            </div>
           </div>
         </div>
       )}
-      <input
-        ref={colorInputRef}
-        type="color"
-        value={accentColor}
-        onChange={(e) => setAccentColor(e.target.value)}
-        className="sr-only"
-      />
 
-      {/* Background Image */}
       <WallpaperPicker />
 
-      {/* Background Opacity */}
       {backgroundImage && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
@@ -660,7 +1043,7 @@ const ThemeSection = React.memo(function ThemeSection() {
             step={0.01}
             value={backgroundOpacity}
             onChange={(e) => setBackgroundOpacity(Number(e.target.value))}
-            className="w-full accent-[var(--color-accent)] h-1 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg"
+            className={THEME_SLIDER_CLASSNAME}
           />
         </div>
       )}
@@ -856,6 +1239,7 @@ const SoundWaveSection = React.memo(function SoundWaveSection() {
               </label>
               <input
                 type="password"
+                autoComplete="current-password"
                 value={qdrantKey}
                 onChange={(e) => setQdrantKey(e.target.value)}
                 placeholder={t(
@@ -1007,11 +1391,13 @@ const PlaybackSection = React.memo(function PlaybackSection() {
   const showFpsCounter = useSettingsStore((s) => s.showFpsCounter);
   const hardwareAcceleration = useSettingsStore((s) => s.hardwareAcceleration);
   const lowPerformanceMode = useSettingsStore((s) => s.lowPerformanceMode);
+  const experimentalRuAudioTextWarmup = useSettingsStore((s) => s.experimentalRuAudioTextWarmup);
   const setTargetFramerate = useSettingsStore((s) => s.setTargetFramerate);
   const setUnlockFramerate = useSettingsStore((s) => s.setUnlockFramerate);
   const setShowFpsCounter = useSettingsStore((s) => s.setShowFpsCounter);
   const setHardwareAcceleration = useSettingsStore((s) => s.setHardwareAcceleration);
   const setLowPerformanceMode = useSettingsStore((s) => s.setLowPerformanceMode);
+  const setExperimentalRuAudioTextWarmup = useSettingsStore((s) => s.setExperimentalRuAudioTextWarmup);
   const crossfadeEnabled = useSettingsStore((s) => s.crossfadeEnabled);
   const crossfadeDuration = useSettingsStore((s) => s.crossfadeDuration);
   const setCrossfadeEnabled = useSettingsStore((s) => s.setCrossfadeEnabled);
@@ -1146,6 +1532,37 @@ const PlaybackSection = React.memo(function PlaybackSection() {
             className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[var(--color-accent)]"
           />
         </div>
+      </div>
+
+      <div className="border-t border-white/[0.04]" />
+
+      <div className="flex items-center justify-between">
+        <div className="space-y-1 pr-4">
+          <p className="text-[13px] text-white/70 font-medium">
+            {t(
+              'settings.experimentalRuAudioTextWarmup',
+              'Экспериментально: Light Audio-Text Warmup (RU)',
+            )}
+          </p>
+          <p className="text-[11px] text-white/30">
+            {t(
+              'settings.experimentalRuAudioTextWarmupDesc',
+              'Экспериментальный лёгкий warmup, который слегка подготавливает тайминг сгенерированной русской лирики. По умолчанию выключен.',
+            )}
+          </p>
+        </div>
+        <button
+          onClick={() => setExperimentalRuAudioTextWarmup(!experimentalRuAudioTextWarmup)}
+          className={`w-11 h-6 rounded-full transition-all duration-200 cursor-pointer relative ${
+            experimentalRuAudioTextWarmup ? 'bg-accent' : 'bg-white/10'
+          }`}
+        >
+          <div
+            className={`absolute top-0.5 w-5 h-5 rounded-full shadow-md transition-all duration-200 ${
+              experimentalRuAudioTextWarmup ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-white'
+            }`}
+          />
+        </button>
       </div>
 
       <div className="border-t border-white/[0.04]" />

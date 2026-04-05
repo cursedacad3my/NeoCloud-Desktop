@@ -18,10 +18,15 @@ interface SessionResponse {
   authenticated: boolean;
 }
 
-export function Login() {
+interface LoginProps {
+  autoStartRequestId?: number | null;
+}
+
+export function Login({ autoStartRequestId = null }: LoginProps) {
   const { t } = useTranslation();
   const setSession = useAuthStore((s) => s.setSession);
   const fetchUser = useAuthStore((s) => s.fetchUser);
+  const clearReloginRequest = useAuthStore((s) => s.clearReloginRequest);
   const apiMode = useSettingsStore((s) => s.apiMode);
   const soundcloudClientId = useSettingsStore((s) => s.soundcloudClientId);
   const soundcloudClientSecret = useSettingsStore((s) => s.soundcloudClientSecret);
@@ -32,14 +37,9 @@ export function Login() {
   const [authUrl, setAuthUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handledAutoStartRef = useRef<number | null>(null);
   const hasCredentials = soundcloudClientId.trim() && soundcloudClientSecret.trim();
   const canUseCustomApi = apiMode === 'auto' || Boolean(hasCredentials);
-
-  useEffect(() => {
-    return () => {
-      if (pollRef.current) clearTimeout(pollRef.current);
-    };
-  }, []);
 
   const handleLogin = async () => {
     if (pollRef.current) clearTimeout(pollRef.current);
@@ -53,10 +53,6 @@ export function Login() {
             clientSecret: soundcloudClientSecret.trim(),
             redirectUri: 'http://localhost:3000/auth/callback',
           }),
-        });
-      } else {
-        await api('/auth/credentials/clear', {
-          method: 'POST',
         });
       }
 
@@ -96,16 +92,37 @@ export function Login() {
     }
   };
 
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearTimeout(pollRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!autoStartRequestId || loading || !canUseCustomApi) return;
+    if (handledAutoStartRef.current === autoStartRequestId) return;
+
+    handledAutoStartRef.current = autoStartRequestId;
+    clearReloginRequest();
+    void handleLogin();
+  }, [autoStartRequestId, canUseCustomApi, clearReloginRequest, loading]);
+
   return (
     <div className="h-screen flex items-center justify-center relative overflow-hidden">
-      {/* Background ambient glow */}
       <div className="absolute inset-0">
         <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] rounded-full bg-accent/[0.04] blur-[120px]" />
         <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] rounded-full bg-purple-500/[0.03] blur-[120px]" />
       </div>
 
-      <div className="relative flex flex-col items-center gap-8 max-w-sm w-full mx-4">
-        {/* Logo */}
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!loading && canUseCustomApi) {
+            void handleLogin();
+          }
+        }}
+        className="relative flex flex-col items-center gap-8 max-w-sm w-full mx-4"
+      >
         <div className="relative">
           <div className="absolute inset-0 bg-accent/20 blur-2xl rounded-full scale-150" />
           <div className="relative w-20 h-20 rounded-[22px] bg-white/[0.04] backdrop-blur-xl border border-white/[0.08] flex items-center justify-center shadow-[0_0_40px_rgba(255,85,0,0.1)]">
@@ -164,6 +181,7 @@ export function Login() {
               />
               <input
                 type="password"
+                autoComplete="current-password"
                 value={soundcloudClientSecret}
                 onChange={(e) => setSoundcloudClientSecret(e.target.value)}
                 placeholder="Client Secret"
@@ -209,15 +227,14 @@ export function Login() {
           </div>
         ) : (
           <button
-            type="button"
-            onClick={handleLogin}
+            type="submit"
             disabled={!canUseCustomApi}
             className="w-full py-3.5 rounded-2xl bg-accent text-accent-contrast font-semibold text-sm hover:bg-accent-hover active:scale-[0.97] transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer shadow-[0_0_40px_var(--color-accent-glow),0_4px_12px_rgba(0,0,0,0.3)] hover:shadow-[0_0_60px_var(--color-accent-glow),0_4px_16px_rgba(0,0,0,0.4)] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-accent disabled:active:scale-100 disabled:hover:shadow-[0_0_40px_var(--color-accent-glow),0_4px_12px_rgba(0,0,0,0.3)]"
           >
             {t('auth.signIn')}
           </button>
         )}
-      </div>
+      </form>
     </div>
   );
 }

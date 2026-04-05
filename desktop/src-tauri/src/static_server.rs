@@ -9,6 +9,7 @@ use warp::http::{Response, StatusCode};
 use warp::hyper::Body;
 use warp::Filter;
 
+use crate::emit_window_visibility;
 use crate::server::cors;
 
 const PREFERRED_STATIC_PORT: u16 = 58334;
@@ -86,6 +87,7 @@ fn emit_rpc_open_to_app(app: &tauri::AppHandle, urn: &str) {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
+        emit_window_visibility(app, true);
 
         let _ = app.emit("discord:open-track", urn.to_string());
         let _ = window.emit("discord:open-track", urn.to_string());

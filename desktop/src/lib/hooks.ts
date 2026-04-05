@@ -4,6 +4,7 @@ import type { Track } from '../stores/player';
 import { api } from './api';
 import { initLikedUrns } from './likes';
 import { rememberLikedTracks, rememberTracks } from './offline-index';
+import { rankTracksByQuery } from './track-search';
 
 /* ── Types ─────────────────────────────────────────────────────── */
 
@@ -936,11 +937,16 @@ export function useSearchTracks(q: string) {
   const tracks = useMemo(() => {
     if (!query.data) return [];
     const arr: Track[] = [];
+    const seen = new Set<string>();
     for (const page of query.data.pages) {
-      for (const t of page.collection) arr.push(t);
+      for (const t of page.collection) {
+        if (!t?.urn || seen.has(t.urn)) continue;
+        seen.add(t.urn);
+        arr.push(t);
+      }
     }
-    return arr;
-  }, [query.data]);
+    return rankTracksByQuery(arr, q);
+  }, [query.data, q]);
   return { tracks, ...query };
 }
 

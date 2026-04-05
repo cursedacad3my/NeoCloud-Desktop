@@ -6,7 +6,13 @@ import { useSettingsStore } from '../stores/settings';
 import { useSoundWaveStore } from '../stores/soundwave';
 import { api, getSessionId, streamUrl } from './api';
 import { audioAnalyser } from './audio-analyser';
-import { fetchAndCacheTrack, getCacheFilePath, getCacheTargetPath, isCached } from './cache';
+import {
+  fetchAndCacheTrack,
+  getCacheFilePath,
+  getCacheTargetPath,
+  isCached,
+  removeCachedTrack,
+} from './cache';
 import { art } from './formatters';
 import { isTauriRuntime } from './runtime';
 
@@ -90,7 +96,17 @@ function inferCodecFromFormat(format: string): string | undefined {
   return undefined;
 }
 
-export function seek(seconds: number) {
+function isNotFoundLoadError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /\b404\b/.test(message) || message.includes('Not Found');
+}
+
+function hasNoSeekFallbackSource(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /No source to reload for seek/i.test(message);
+}
+
+export function seek(seconds: number, allowRecovery = true) {
   const track = usePlayerStore.getState().currentTrack;
   if (!track) return;
 
@@ -109,17 +125,25 @@ export function seek(seconds: number) {
         seekPendingUntil = Date.now() + 400;
       })
       .catch(async (error) => {
+        if (!allowRecovery || hasNoSeekFallbackSource(error)) {
+          console.warn('[Audio] seek failed without recovery', error);
+          seekPendingUntil = 0;
+          seekTargetTime = -1;
+          return;
+        }
+
         console.warn('[Audio] seek failed, trying recover...', error);
         try {
           suppressStallDetection(4200);
           seekPendingUntil = Date.now() + 5000;
-          await reloadCurrentTrack();
+          await loadTrack(track);
           await invoke('audio_seek', { position: target });
           seekPendingUntil = Date.now() + 400;
           hasTrack = true;
         } catch (recoveryError) {
           console.error('[Audio] seek recovery failed', recoveryError);
           seekPendingUntil = 0;
+          seekTargetTime = -1;
         }
       });
   }
@@ -160,7 +184,7 @@ export async function reloadCurrentTrack() {
   // (cachedTime may have been overwritten by stale ticks from the old position)
   const pos = seekPendingUntil > Date.now() && seekTargetTime >= 0 ? seekTargetTime : cachedTime;
   await loadTrack(track);
-  if (pos > 0) seek(pos);
+  if (pos > 0) seek(pos, false);
   if (!wasPlaying) invoke('audio_pause').catch(console.error);
 }
 
@@ -292,6 +316,7 @@ async function loadTrack(track: Track, skipStop = false) {
         loadedFromCache = true;
       } catch (cacheError) {
         console.warn('[Audio] Cached file failed to decode, retrying from network...', cacheError);
+        await removeCachedTrack(urn);
         result = await loadFromNetworkWithFallback();
       }
     } else {
@@ -328,6 +353,12 @@ async function loadTrack(track: Track, skipStop = false) {
   } catch (e) {
     console.error('[Audio] Load failed:', e);
     if (gen !== loadGen) return;
+    if (isNotFoundLoadError(e)) {
+      console.warn(`[Audio] Marking track as unavailable after stream 404: ${track.urn}`);
+      usePlayerStore.getState().setTrackAccessByUrn(track.urn, 'blocked');
+      void handleUnavailableTrack(track);
+      return;
+    }
     usePlayerStore.getState().pause();
     return;
   }
@@ -373,6 +404,7 @@ function handleTrackEnd() {
   const sw = useSoundWaveStore.getState();
 
   if (state.currentTrack) {
+    sw.markTrackPlayed(state.currentTrack);
     audioAnalyser.finalizeCurrentTrackIfReady();
     sw.ingestPlayedTrackFeatures(state.currentTrack);
   }
@@ -385,10 +417,17 @@ function handleTrackEnd() {
     // rodio sink is empty after track ends — must reload
     if (state.currentTrack) void loadTrack(state.currentTrack);
   } else {
-    const { queue, queueIndex } = state;
+    const { queue, queueIndex, queueSource } = state;
     const isLast = queueIndex >= queue.length - 1;
     if (isLast && state.repeat === 'off' && queue.length > 0) {
-      void autoplayRelated(queue[queueIndex]);
+      const lastTrack = queue[queueIndex];
+      if (queueSource === 'soundwave' && sw.isActive && !sw.isSuspended && lastTrack) {
+        void continueSoundWaveQueue(lastTrack);
+      } else if (lastTrack) {
+        void autoplayRelated(lastTrack);
+      } else {
+        usePlayerStore.getState().pause();
+      }
     } else {
       // Clear currentUrn so subscriber detects change even if next track has same URN
       currentUrn = null;
@@ -694,6 +733,59 @@ function updateMediaPosition() {
 
 let autoplayLoading = false;
 
+async function handleUnavailableTrack(track: Track) {
+  const state = usePlayerStore.getState();
+  const sw = useSoundWaveStore.getState();
+  const currentQueueIndex = state.queue.findIndex((queuedTrack) => queuedTrack.urn === track.urn);
+  const effectiveIndex = currentQueueIndex >= 0 ? currentQueueIndex : state.queueIndex;
+  const isLast = effectiveIndex < 0 || effectiveIndex >= state.queue.length - 1;
+
+  if (!isLast) {
+    console.log('[Audio] Skipping unavailable track and moving to the next queue item');
+    currentUrn = null;
+    state.next();
+    return;
+  }
+
+  if (state.repeat === 'off' && state.queue.length > 0) {
+    if (state.queueSource === 'soundwave' && sw.isActive && !sw.isSuspended) {
+      await continueSoundWaveQueue(track);
+      return;
+    }
+    await autoplayRelated(track);
+    return;
+  }
+
+  usePlayerStore.getState().pause();
+}
+
+async function continueSoundWaveQueue(lastTrack: Track) {
+  const sw = useSoundWaveStore.getState();
+  const before = usePlayerStore.getState();
+
+  try {
+    console.log('[SoundWave] Queue exhausted, generating next batch...');
+    const batch = await sw.generateBatch();
+
+    if (batch.length > 0) {
+      usePlayerStore.getState().addToQueue(batch);
+      const after = usePlayerStore.getState();
+      if (after.queue.length > before.queue.length && after.queueIndex < after.queue.length - 1) {
+        currentUrn = null;
+        after.next();
+        return;
+      }
+      console.warn('[SoundWave] Generated batch contained no fresh queue additions');
+    } else {
+      console.warn('[SoundWave] Queue refill returned no tracks');
+    }
+  } catch (error) {
+    console.error('[SoundWave] Queue refill failed', error);
+  }
+
+  await autoplayRelated(lastTrack);
+}
+
 async function autoplayRelated(lastTrack: Track) {
   if (autoplayLoading) return;
   autoplayLoading = true;
@@ -723,18 +815,46 @@ async function autoplayRelated(lastTrack: Track) {
 /* ── Preloading ──────────────────────────────────────────────── */
 
 let preloadTimer: ReturnType<typeof setTimeout> | null = null;
+let hoverPreloadTimer: ReturnType<typeof setTimeout> | null = null;
+let hoverPreloadCandidate: string | null = null;
 const MAX_CONCURRENT_PRELOADS = 1;
 const PRELOAD_LOOKAHEAD_TRACKS = 3;
+const HOVER_PRELOAD_DWELL_MS = 180;
+const HOVER_PRELOAD_PUMP_DELAY_MS = 220;
 let activePreloads = 0;
 const preloadPendingUrns: string[] = [];
 const preloadPendingSet = new Set<string>();
 const preloadInFlightSet = new Set<string>();
+const preloadSourceMap = new Map<string, { hover: boolean; queue: boolean }>();
 
-function queuePreload(urn: string) {
+function queuePreload(urn: string, source: 'hover' | 'queue' = 'queue', priority = false) {
   if (!urn || urn === currentUrn) return;
+
+  const flags = preloadSourceMap.get(urn) ?? { hover: false, queue: false };
+  flags[source] = true;
+  preloadSourceMap.set(urn, flags);
+
   if (preloadPendingSet.has(urn) || preloadInFlightSet.has(urn)) return;
   preloadPendingSet.add(urn);
-  preloadPendingUrns.push(urn);
+  if (priority) {
+    preloadPendingUrns.unshift(urn);
+  } else {
+    preloadPendingUrns.push(urn);
+  }
+}
+
+function clearHoverOnlyPendingPreloads(exceptUrn?: string) {
+  for (let i = preloadPendingUrns.length - 1; i >= 0; i -= 1) {
+    const urn = preloadPendingUrns[i];
+    if (urn === exceptUrn) continue;
+
+    const flags = preloadSourceMap.get(urn);
+    if (!flags?.hover || flags.queue) continue;
+
+    preloadPendingUrns.splice(i, 1);
+    preloadPendingSet.delete(urn);
+    preloadSourceMap.delete(urn);
+  }
 }
 
 function schedulePreloadPump(delayMs = 260) {
@@ -771,6 +891,7 @@ async function pumpPreloads() {
       .finally(() => {
         activePreloads = Math.max(0, activePreloads - 1);
         preloadInFlightSet.delete(urn);
+        preloadSourceMap.delete(urn);
         if (preloadPendingUrns.length > 0) {
           schedulePreloadPump(220);
         }
@@ -780,8 +901,19 @@ async function pumpPreloads() {
 
 export function preloadTrack(urn: string) {
   if (!isTauriRuntime()) return;
-  queuePreload(urn);
-  schedulePreloadPump(500);
+
+  hoverPreloadCandidate = urn;
+  if (hoverPreloadTimer) clearTimeout(hoverPreloadTimer);
+  hoverPreloadTimer = setTimeout(() => {
+    hoverPreloadTimer = null;
+    const candidate = hoverPreloadCandidate;
+    hoverPreloadCandidate = null;
+    if (!candidate || candidate === currentUrn) return;
+
+    clearHoverOnlyPendingPreloads(candidate);
+    queuePreload(candidate, 'hover', true);
+    schedulePreloadPump(HOVER_PRELOAD_PUMP_DELAY_MS);
+  }, HOVER_PRELOAD_DWELL_MS);
 }
 
 export function preloadQueue() {
@@ -790,7 +922,7 @@ export function preloadQueue() {
   for (let i = 1; i <= PRELOAD_LOOKAHEAD_TRACKS; i++) {
     const idx = queueIndex + i;
     if (idx < queue.length) {
-      queuePreload(queue[idx].urn);
+      queuePreload(queue[idx].urn, 'queue');
     }
   }
   schedulePreloadPump(420);

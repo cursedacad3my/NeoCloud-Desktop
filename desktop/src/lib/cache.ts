@@ -2,9 +2,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { appCacheDir, join } from '@tauri-apps/api/path';
 import { exists, mkdir, readDir, remove, stat, writeFile } from '@tauri-apps/plugin-fs';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
-import { useSettingsStore } from '../stores/settings';
-import { getSessionId } from './api';
-import { buildApiUrl, getStaticPort } from './constants';
+import { getSessionId, streamUrl } from './api';
+import { getStaticPort } from './constants';
 import { isTauriRuntime } from './runtime';
 
 const AUDIO_DIR = 'audio';
@@ -12,6 +11,7 @@ const ASSETS_DIR = 'assets';
 const WALLPAPERS_DIR = 'wallpapers';
 const LYRICS_DIR = 'lyrics';
 const MIN_AUDIO_SIZE = 8192;
+const CACHE_FETCH_FORMAT = 'http_mp3_128';
 
 let cacheBasePath: string | null = null;
 
@@ -41,6 +41,16 @@ async function filePath(urn: string): Promise<string> {
 export async function getCacheTargetPath(urn: string): Promise<string> {
   if (!isTauriRuntime()) return urnToFilename(urn);
   return await filePath(urn);
+}
+
+export async function removeCachedTrack(urn: string): Promise<void> {
+  if (!isTauriRuntime()) return;
+  try {
+    const path = await filePath(urn);
+    await remove(path).catch(() => {});
+  } catch {
+    // ignore cache cleanup failures
+  }
 }
 
 export async function isCached(urn: string): Promise<boolean> {
@@ -101,13 +111,7 @@ export async function fetchAndCacheTrack(urn: string, signal?: AbortSignal): Pro
   const promise = (async () => {
     try {
       const sessionId = getSessionId();
-      const params = new URLSearchParams();
-      if (useSettingsStore.getState().highQualityStreaming) {
-        params.set('hq', 'true');
-      }
-      const url = buildApiUrl(
-        `/tracks/${encodeURIComponent(urn)}/stream${params.size ? `?${params.toString()}` : ''}`,
-      );
+      const url = streamUrl(urn, CACHE_FETCH_FORMAT, false);
 
       const requestInit: RequestInit = {
         headers: sessionId ? { 'x-session-id': sessionId } : {},
@@ -130,10 +134,14 @@ export async function fetchAndCacheTrack(urn: string, signal?: AbortSignal): Pro
         }
       } else {
         console.error(`💾 [Cache] Invalid audio received for ${urn}`);
+        await removeCachedTrack(urn);
         throw new Error('Invalid audio');
       }
       return buffer;
     } catch (e: any) {
+      if (e.name !== 'AbortError') {
+        await removeCachedTrack(urn);
+      }
       if (e.name === 'AbortError') {
         console.warn(`💾[Cache] Fetch ABORTED for ${urn}`);
       } else {
@@ -264,8 +272,8 @@ export async function listCachedUrns(): Promise<string[]> {
 export async function getCacheFilePath(urn: string): Promise<string | null> {
   if (!isTauriRuntime()) return null;
   try {
+    if (!(await isCached(urn))) return null;
     const path = await filePath(urn);
-    if (!(await exists(path))) return null;
     return path;
   } catch {
     return null;
@@ -447,7 +455,17 @@ export async function loadLyricsFromCache(urn: string): Promise<any | null> {
     // Tauri v2 plugin-fs has readTextFile
     const { readTextFile } = await import('@tauri-apps/plugin-fs');
     const text = await readTextFile(path);
-    return JSON.parse(text);
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === 'object') {
+      const source = (parsed as { source?: unknown }).source;
+      if (source === 'qwen' || source === 'kroko' || source === 'vosk') {
+        return {
+          ...parsed,
+          source: 'genius',
+        };
+      }
+    }
+    return parsed;
   } catch {
     return null;
   }

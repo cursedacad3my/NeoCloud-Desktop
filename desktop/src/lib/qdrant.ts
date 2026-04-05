@@ -1,6 +1,7 @@
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import type { Track } from '../stores/player';
 import type { AudioFeatures } from './audio-analyser';
+import { isTauriRuntime } from './runtime';
 
 export interface QdrantConfig {
   url: string;
@@ -236,9 +237,10 @@ export class QdrantClient {
 
     let response: Response;
     try {
-      response = await tauriFetch(url, request);
-    } catch {
-      response = await fetch(url, request);
+      response = isTauriRuntime() ? await tauriFetch(url, request) : await fetch(url, request);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Qdrant request failed: ${message}`);
     }
     if (!response.ok) {
       const text = await response.text();

@@ -14,6 +14,10 @@ on:
           - minor
           - major
         default: "patch"
+      exact_version:
+        description: "Exact version to release (optional, e.g. 6.3.0)"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -29,6 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.bump.outputs.version }}
+      tag: ${{ steps.bump.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,9 +48,16 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           VERSION_INPUT: ${{ github.event.inputs.version_type }}
+          EXACT_VERSION_INPUT: ${{ github.event.inputs.exact_version }}
           COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+          if [ -n "${EXACT_VERSION_INPUT:-}" ]; then
+            if ! echo "$EXACT_VERSION_INPUT" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "Invalid exact version: $EXACT_VERSION_INPUT"
+              exit 1
+            fi
+            EXACT_VERSION="$EXACT_VERSION_INPUT"
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             RELEASE_TYPE="${VERSION_INPUT:-patch}"
           else
             RELEASE_TYPE=$(echo "$COMMIT_MSG" | grep -oP '!release:\s*\K(major|minor|patch)' || echo "patch")
@@ -61,8 +73,12 @@ jobs:
             exit 1
           fi
 
-          npm version "$CURRENT_VERSION" --no-git-tag-version --allow-same-version
-          npm version "$RELEASE_TYPE" --no-git-tag-version
+          if [ -n "${EXACT_VERSION:-}" ]; then
+            npm version "$EXACT_VERSION" --no-git-tag-version
+          else
+            npm version "$CURRENT_VERSION" --no-git-tag-version --allow-same-version
+            npm version "$RELEASE_TYPE" --no-git-tag-version
+          fi
           NEW_VERSION=$(node -p "require('./package.json').version")
           cd ..
 
@@ -70,9 +86,10 @@ jobs:
           sed -i "s/^version = \".*\"/version = \"$NEW_VERSION\"/" desktop/src-tauri/Cargo.toml
 
           echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$NEW_VERSION" >> "$GITHUB_OUTPUT"
 
           if ! git diff --quiet; then
-            git add desktop/package.json desktop/package-lock.json desktop/src-tauri/tauri.conf.json desktop/src-tauri/Cargo.toml desktop/src-tauri/Cargo.lock
+            git add desktop/package.json desktop/src-tauri/tauri.conf.json desktop/src-tauri/Cargo.toml desktop/src-tauri/Cargo.lock
             git commit -m "chore: bump version to $NEW_VERSION [skip ci]"
             git push origin HEAD:${{ github.ref_name }}
           fi
@@ -83,7 +100,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.ref_name }}
 
       - uses: docker/setup-buildx-action@v3
 
@@ -134,10 +151,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.ref_name }}
 
       - name: Pull latest
-        run: git pull origin main
+        run: git pull origin "${{ github.ref_name }}"
 
       - name: Install dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-22.04' || matrix.platform == 'ubuntu-22.04-arm'
@@ -261,12 +278,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.ref_name }}
 
       - name: Pull latest
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git pull origin main
+          git pull origin "${{ github.ref_name }}"
 
       - uses: actions/setup-node@v4
         with:
@@ -331,7 +348,6 @@ jobs:
       - name: Generate updater manifest
         env:
           VERSION: ${{ needs.version.outputs.version }}
-          REPOSITORY: ${{ github.repository }}
         run: |
           python3 - <<'PY'
           import json
@@ -339,9 +355,8 @@ jobs:
           from pathlib import Path
 
           version = os.environ['VERSION']
-          repository = os.environ['REPOSITORY']
           release_dir = Path('/tmp/release')
-          base_url = f"https://github.com/{repository}/releases/download/{version}"
+          base_url = "https://github.com/Teiwazik/SoundCloud-DesktopFork/releases/latest/download"
 
           candidates = {
               'windows-x86_64': [
@@ -385,6 +400,7 @@ jobs:
         uses: zxcloli666/release-helper@main
         with:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
           VERSION_TYPE: ${{ github.event.inputs.version_type }}
           BUILD_COMMAND: "echo 'skip'"
           ASSET_PATTERNS: "/tmp/release/*"

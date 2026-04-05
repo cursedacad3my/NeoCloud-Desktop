@@ -16,8 +16,10 @@ import {
   subscribe,
 } from '../../lib/audio';
 import { updateDiscordLyric } from '../../lib/discord';
+import { getAnimationFrameBudgetMs } from '../../lib/framerate';
 import { art, formatTime } from '../../lib/formatters';
 import { invalidateAllLikesCache } from '../../lib/hooks';
+import { isAppBackgrounded } from '../../lib/app-visibility';
 import { useIsMobile } from '../../lib/hooks/useIsMobile';
 import {
   audioLines16,
@@ -55,6 +57,8 @@ export const ProgressSlider = React.memo(() => {
   const currentTrack = usePlayerStore((s) => s.currentTrack);
   const floatingComments = useSettingsStore((s) => s.floatingComments);
   const classicPlaybar = useSettingsStore((s) => s.classicPlaybar);
+  const targetFramerate = useSettingsStore((s) => s.targetFramerate);
+  const unlockFramerate = useSettingsStore((s) => s.unlockFramerate);
 
   const { data: comments } = useQuery({
     queryKey: ['comments', currentTrack?.urn],
@@ -184,9 +188,10 @@ export const ProgressSlider = React.memo(() => {
 
     const loop = (ts: number) => {
       rafId = requestAnimationFrame(loop);
-      if (draggingRef.current || document.visibilityState === 'hidden' || !isPlaying) return;
+      if (draggingRef.current || isAppBackgrounded() || !isPlaying) return;
 
-      if (ts - lastPaint < 33) return;
+      const frameBudgetMs = getAnimationFrameBudgetMs(targetFramerate, unlockFramerate);
+      if (frameBudgetMs > 0 && ts - lastPaint < frameBudgetMs) return;
       lastPaint = ts;
 
       setSyncedValue(getSmoothCurrentTime());
@@ -203,7 +208,7 @@ export const ProgressSlider = React.memo(() => {
       cancelAnimationFrame(rafId);
       unsub();
     };
-  }, [isPlaying]);
+  }, [isPlaying, targetFramerate, unlockFramerate]);
 
   const displayValue = dragging ? dragValue : syncedValue;
 
@@ -266,12 +271,12 @@ export const ProgressSlider = React.memo(() => {
         >
           <div className="absolute inset-0 bg-white/[0.08]" />
           <Slider.Range
-            className={`absolute h-full will-change-transform ${maskUri ? 'bg-accent/90' : 'bg-accent rounded-full'}`}
+            className={`absolute h-full will-change-transform theme-accent-progress theme-accent-animated ${maskUri ? '' : 'rounded-full'}`}
           />
           {markers}
         </Slider.Track>
         {(!maskUri || classicPlaybar) && (
-          <Slider.Thumb className="block w-3 h-3 rounded-full bg-accent shadow-[0_0_10px_var(--color-accent-glow)] scale-0 opacity-0 group-hover/slider:scale-100 group-hover/slider:opacity-100 transition-all duration-150 outline-none will-change-transform" />
+          <Slider.Thumb className="block w-3 h-3 rounded-full theme-accent-thumb theme-accent-animated scale-0 opacity-0 group-hover/slider:scale-100 group-hover/slider:opacity-100 transition-all duration-150 outline-none will-change-transform" />
         )}
       </Slider.Root>
     </div>
@@ -306,11 +311,11 @@ const VolumeSlider = React.memo(({ className = '' }: { className?: string }) => 
       >
         <Slider.Track className="relative h-[3px] grow rounded-full bg-white/[0.08] group-hover:h-[4px] transition-all duration-150">
           <Slider.Range
-            className={`absolute h-full rounded-full ${isOver100 ? 'bg-accent' : 'bg-white/60'}`}
+            className={`absolute h-full rounded-full ${isOver100 ? 'theme-accent-progress theme-accent-animated' : 'bg-white/60'}`}
           />
         </Slider.Track>
         <Slider.Thumb
-          className={`block w-2.5 h-2.5 rounded-full transition-all duration-150 outline-none scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100 ${isOver100 ? 'bg-accent shadow-[0_0_10px_var(--color-accent-glow)]' : 'bg-white'}`}
+          className={`block w-2.5 h-2.5 rounded-full transition-all duration-150 outline-none scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100 ${isOver100 ? 'theme-accent-thumb theme-accent-animated' : 'bg-white'}`}
         />
       </Slider.Root>
       {/* 100% tick mark (visual only, outside Slider tree) */}
@@ -660,7 +665,7 @@ function MoodCorrectionButton({ track }: { track: Track }) {
                     type="button"
                     onClick={confirmMood}
                     disabled={sending}
-                    className="flex-1 rounded-xl bg-accent px-2.5 py-2 text-[11px] font-semibold text-black transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="flex-1 rounded-xl theme-accent-fill theme-accent-animated px-2.5 py-2 text-[11px] font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {t('track.moodConfirmYes', 'Yes')}
                   </button>
@@ -891,16 +896,29 @@ const PlaybarVisualizer = React.memo(() => {
 
 const DiscordLyricsSyncer = React.memo(() => {
   const currentTrack = usePlayerStore((s) => s.currentTrack);
+  const discordRpc = useSettingsStore((s) => s.discordRpc);
+  const discordRpcMode = useSettingsStore((s) => s.discordRpcMode);
+  const lyricsSyncEnabled = discordRpc && discordRpcMode === 'text';
 
   const { data: lyrics } = useQuery({
-    queryKey: ['lyrics', currentTrack?.urn, currentTrack?.user.username, currentTrack?.title],
-    queryFn: () => searchLyrics(currentTrack!.urn, currentTrack!.user.username, currentTrack!.title),
-    enabled: !!currentTrack,
+    queryKey: ['lyrics', 7, currentTrack?.urn, currentTrack?.user.username, currentTrack?.title],
+    queryFn: () => searchLyrics(currentTrack!.urn, currentTrack!.user.username, currentTrack!.title, {
+      uploaderUsername: currentTrack!.user.username,
+      originalTitle: currentTrack!.title,
+      durationMs: currentTrack!.duration,
+      genre: currentTrack!.genre ?? null,
+      tagList: currentTrack!.tag_list ?? null,
+      description: currentTrack!.description ?? null,
+      createdAt: currentTrack!.created_at ?? null,
+      artworkUrl: currentTrack!.artwork_url ?? null,
+    }),
+    enabled: lyricsSyncEnabled && !!currentTrack?.urn,
     staleTime: Number.POSITIVE_INFINITY,
+    retry: 0,
   });
 
   useEffect(() => {
-    if (!lyrics?.synced) {
+    if (!lyricsSyncEnabled || !lyrics?.synced) {
       updateDiscordLyric(null);
       return;
     }
@@ -920,7 +938,7 @@ const DiscordLyricsSyncer = React.memo(() => {
     });
 
     return unsub;
-  }, [lyrics]);
+  }, [lyrics, lyricsSyncEnabled]);
 
   return null;
 });

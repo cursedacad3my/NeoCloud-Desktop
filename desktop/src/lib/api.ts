@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import i18n from '../i18n';
 import { useAppStatusStore } from '../stores/app-status';
 import { useSettingsStore } from '../stores/settings';
+import { waitForAuthHydration } from './auth-hydration';
 import { buildApiUrl, getApiBase } from './constants';
 
 let sessionId: string | null = null;
@@ -113,8 +114,6 @@ function applyRateLimitWindow(retryAfterMs: number | null) {
 }
 
 function showSessionExpiredToast() {
-  useAppStatusStore.getState().setBackendReachable(false);
-
   if (Date.now() - sessionExpiredToastAt <= SESSION_EXPIRED_TOAST_COOLDOWN_MS) {
     return;
   }
@@ -129,8 +128,6 @@ function showSessionExpiredToast() {
 }
 
 function handleUnauthorized() {
-  useAppStatusStore.getState().setBackendReachable(false);
-
   if (sessionInvalidated) {
     return false;
   }
@@ -142,6 +139,7 @@ function handleUnauthorized() {
 
 export async function api<T = unknown>(path: string, options: ApiRequestOptions = {}): Promise<T> {
   const { quietHttpErrors = false, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS, ...requestOptions } = options;
+  await waitForAuthHydration();
   await waitForRateLimitWindow();
 
   const headers = new Headers(requestOptions.headers);
@@ -260,6 +258,9 @@ export async function getTrackComments(trackUrn: string): Promise<TrackComment[]
     );
     return res.collection || [];
   } catch (e) {
+    if (e instanceof Error && e.name === 'AbortError') {
+      return [];
+    }
     console.error('Failed to fetch comments', e);
     return [];
   }

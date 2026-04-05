@@ -5,7 +5,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AddToPlaylistDialog } from '../components/music/AddToPlaylistDialog';
 import { LikeButton } from '../components/music/LikeButton';
 import { PlaylistCard } from '../components/music/PlaylistCard';
-import { api } from '../lib/api';
+import { api, ApiError } from '../lib/api';
 import { preloadTrack } from '../lib/audio';
 import { art, dur, fc } from '../lib/formatters';
 import {
@@ -19,6 +19,7 @@ import {
   useMyLikedPlaylists,
   useMyPlaylists,
 } from '../lib/hooks';
+import { filterTracksByQuery } from '../lib/track-search';
 import {
   Heart,
   headphones11,
@@ -37,9 +38,16 @@ import {
 } from '../lib/icons';
 import { useTrackPlay } from '../lib/useTrackPlay';
 import { useAuthStore } from '../stores/auth';
-import { useDislikesStore } from '../stores/dislikes';
+import { isTrackUrn, useDislikesStore } from '../stores/dislikes';
 import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
+
+const LIBRARY_TABS = ['playlists', 'likes', 'following', 'history', 'dislikes'] as const;
+type LibraryTab = (typeof LIBRARY_TABS)[number];
+
+function isLibraryTab(value: string | null): value is LibraryTab {
+  return value != null && LIBRARY_TABS.includes(value as LibraryTab);
+}
 
 /* ── Components ───────────────────────────────────────────── */
 
@@ -360,11 +368,7 @@ const LikesTab = React.memo(function LikesTab({ filter }: { filter: string }) {
   }, [filter, likesQuery.hasNextPage, likesQuery.isFetchingNextPage]);
 
   const filtered = useMemo(() => {
-    if (!filter) return likedTracks;
-    const q = filter.toLowerCase();
-    return likedTracks.filter(
-      (t) => t.title.toLowerCase().includes(q) || t.user.username.toLowerCase().includes(q),
-    );
+    return filterTracksByQuery(likedTracks, filter);
   }, [likedTracks, filter]);
 
   const expandQueue = React.useCallback(() => {
@@ -809,17 +813,48 @@ const DislikesTab = React.memo(function DislikesTab({ filter }: { filter: string
   const { t } = useTranslation();
   const dislikedTrackUrns = useDislikesStore((s) => s.dislikedTrackUrns);
   const toggleDislike = useDislikesStore((s) => s.toggleDislike);
+  const pruneDislikes = useDislikesStore((s) => s.pruneDislikes);
+
+  const invalidStoredUrns = useMemo(
+    () => dislikedTrackUrns.filter((urn) => !isTrackUrn(urn)),
+    [dislikedTrackUrns],
+  );
+  const trackUrns = useMemo(() => dislikedTrackUrns.filter(isTrackUrn), [dislikedTrackUrns]);
 
   const trackQueries = useQueries({
-    queries: dislikedTrackUrns.map((urn) => ({
+    queries: trackUrns.map((urn) => ({
       queryKey: ['track', urn],
-      queryFn: () => api<Track>(`/tracks/${encodeURIComponent(urn)}`),
+      queryFn: () =>
+        api<Track>(`/tracks/${encodeURIComponent(urn)}`, {
+          quietHttpErrors: true,
+        }),
       staleTime: 5 * 60 * 1000,
-      retry: 1,
+      retry: 0,
     })),
   });
 
-  const isLoading = dislikedTrackUrns.length > 0 && trackQueries.some((q) => q.isLoading);
+  const missingTrackUrns = useMemo(
+    () =>
+      trackUrns.filter((_, index) => {
+        const error = trackQueries[index]?.error;
+        return error instanceof ApiError && error.status === 404;
+      }),
+    [trackQueries, trackUrns],
+  );
+
+  useEffect(() => {
+    if (invalidStoredUrns.length > 0) {
+      pruneDislikes(invalidStoredUrns);
+    }
+  }, [invalidStoredUrns, pruneDislikes]);
+
+  useEffect(() => {
+    if (missingTrackUrns.length > 0) {
+      pruneDislikes(missingTrackUrns);
+    }
+  }, [missingTrackUrns, pruneDislikes]);
+
+  const isLoading = trackUrns.length > 0 && trackQueries.some((q) => q.isLoading);
 
   const tracks = useMemo(() => {
     const loaded: Track[] = [];
@@ -830,11 +865,7 @@ const DislikesTab = React.memo(function DislikesTab({ filter }: { filter: string
   }, [trackQueries]);
 
   const filtered = useMemo(() => {
-    if (!filter) return tracks;
-    const q = filter.toLowerCase();
-    return tracks.filter(
-      (t) => t.title.toLowerCase().includes(q) || t.user.username.toLowerCase().includes(q),
-    );
+    return filterTracksByQuery(tracks, filter);
   }, [tracks, filter]);
 
   return (
@@ -843,7 +874,7 @@ const DislikesTab = React.memo(function DislikesTab({ filter }: { filter: string
         <div className="flex justify-center py-20">
           <Loader2 size={32} className="animate-spin text-white/20" />
         </div>
-      ) : dislikedTrackUrns.length === 0 ? (
+      ) : trackUrns.length === 0 ? (
         <div className="py-20 text-center text-white/35">
           {t('settings.dislikedTracksEmpty', 'No disliked tracks')}
         </div>
@@ -872,27 +903,30 @@ const DislikesTab = React.memo(function DislikesTab({ filter }: { filter: string
 
 export const Library = React.memo(() => {
   const { t } = useTranslation();
-  const [searchParams] = useSearchParams();
-  const tabParam = searchParams.get('tab') as
-    | 'playlists'
-    | 'likes'
-    | 'following'
-    | 'history'
-    | null;
-  const [activeTab, setActiveTab] = useState<'playlists' | 'likes' | 'following' | 'history' | 'dislikes'>(
-    (tabParam as any) || 'likes',
-  );
+  const [searchParams, setSearchParams] = useSearchParams();
   const [filter, setFilter] = useState('');
-
-  // Sync tab from URL param
-  useEffect(() => {
-    if (tabParam && tabParam !== activeTab) setActiveTab(tabParam as any);
-  }, [tabParam, activeTab]);
   const deferredFilter = useDeferredValue(filter);
   const user = useAuthStore((s) => s.user);
 
-  const onTabLikes = React.useCallback(() => setActiveTab('likes'), []);
-  const onTabFollowing = React.useCallback(() => setActiveTab('following'), []);
+  const rawTabParam = searchParams.get('tab');
+  const activeTab: LibraryTab = isLibraryTab(rawTabParam) ? rawTabParam : 'likes';
+
+  const setActiveTab = React.useCallback(
+    (tab: LibraryTab) => {
+      const nextParams = new URLSearchParams(searchParams);
+      if (tab === 'likes') {
+        nextParams.delete('tab');
+      } else {
+        nextParams.set('tab', tab);
+      }
+      setSearchParams(nextParams);
+      setFilter('');
+    },
+    [searchParams, setSearchParams],
+  );
+
+  const onTabLikes = React.useCallback(() => setActiveTab('likes'), [setActiveTab]);
+  const onTabFollowing = React.useCallback(() => setActiveTab('following'), [setActiveTab]);
 
   const tabs = [
     { id: 'playlists', label: t('search.playlists') },
@@ -917,8 +951,7 @@ export const Library = React.memo(() => {
               <button
                 key={tab.id}
                 onClick={() => {
-                  setActiveTab(tab.id as any);
-                  setFilter('');
+                  setActiveTab(tab.id);
                 }}
                 className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-300 ease-[var(--ease-apple)] ${
                   isActive

@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { getCurrentTime, getDuration, handlePrev, seek } from '../../lib/audio';
+import { isAppBackgrounded } from '../../lib/app-visibility';
 import { getWallpaperUrl } from '../../lib/cache';
 import { art } from '../../lib/formatters';
 import { useIsMobile } from '../../lib/hooks/useIsMobile';
@@ -191,6 +192,11 @@ const FpsCounter = React.memo(() => {
     let rafId: number;
 
     const loop = () => {
+      if (isAppBackgrounded()) {
+        prevTime = performance.now();
+        rafId = requestAnimationFrame(loop);
+        return;
+      }
       frames++;
       const now = performance.now();
       if (now - prevTime >= 1000) {

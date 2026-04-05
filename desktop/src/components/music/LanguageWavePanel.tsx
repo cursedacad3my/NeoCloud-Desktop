@@ -1,6 +1,7 @@
 import { ChevronDown, Globe, Languages } from 'lucide-react';
 import { memo, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
+import { isAppBackgrounded } from '../../lib/app-visibility';
 import { calculateLanguageDistribution, SUPPORTED_LANGUAGES } from '../../lib/language-detection';
 import { useSettingsStore } from '../../stores/settings';
 import { useSoundWaveStore } from '../../stores/soundwave';
@@ -101,7 +102,7 @@ export const LanguageWavePanel = memo(() => {
         return;
       }
 
-      if (document.visibilityState === 'hidden') {
+      if (isAppBackgrounded()) {
         animationFrameId = requestAnimationFrame(draw);
         return;
       }

@@ -1,3 +1,4 @@
+use crate::emit_window_visibility;
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager};
@@ -25,6 +26,7 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                         let _ = w.show();
                         let _ = w.unminimize();
                         let _ = w.set_focus();
+                        emit_window_visibility(&app.clone(), true);
                     }
                 }
                 "play_pause" | "next" | "prev" => {
@@ -46,6 +48,7 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     let _ = w.show();
                     let _ = w.unminimize();
                     let _ = w.set_focus();
+                    emit_window_visibility(&tray.app_handle(), true);
                 }
             }
         })

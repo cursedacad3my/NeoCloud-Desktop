@@ -19,24 +19,27 @@ export const MixCard: React.FC<MixCardProps> = ({
   color,
   onClick,
 }) => {
-  const { ref, onMouseMove, onMouseLeave } = useTilt();
+  const { ref, onMouseEnter, onMouseMove, onMouseLeave } = useTilt();
 
   return (
     <div
       ref={ref}
-      className="mix-card w-[200px] shrink-0 cursor-pointer group"
+      className="mix-card w-[200px] shrink-0 cursor-pointer group select-none"
       onClick={onClick}
+      onMouseEnter={onMouseEnter}
       onMouseMove={onMouseMove}
       onMouseLeave={onMouseLeave}
     >
       <div
-        className="relative aspect-square rounded-2xl overflow-hidden bg-cover bg-center transition-shadow duration-300 shadow-lg group-hover:shadow-2xl border border-white/[0.05]"
+        className="relative aspect-square rounded-2xl overflow-hidden bg-cover bg-center border border-white/[0.05] shadow-lg transition-all duration-200 ease-[var(--ease-apple)] group-hover:-translate-y-1 group-hover:scale-[1.01] group-hover:shadow-2xl"
         style={{
-          backgroundImage: artworkUrl ? `url(${artworkUrl})` : `linear-gradient(135deg, ${color}, #1a1a2e)`,
+          backgroundImage: artworkUrl
+            ? `url(${artworkUrl})`
+            : `linear-gradient(135deg, ${color}, #1a1a2e)`,
         }}
       >
-        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-        
+        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
+
         <div className="absolute bottom-0 left-0 right-0 p-3 flex items-end justify-between">
           <span
             className="mix-card-label px-2.5 py-1 rounded-md text-[13px] font-extrabold text-white tracking-wider shadow-sm"
@@ -44,9 +47,10 @@ export const MixCard: React.FC<MixCardProps> = ({
           >
             MIX {index + 1}
           </span>
-          
+
           <button
-            className="w-10 h-10 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center text-white opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 hover:bg-accent hover:scale-110"
+            type="button"
+            className="w-10 h-10 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center text-white opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-200 hover:bg-accent hover:scale-105"
             onClick={(e) => {
               e.stopPropagation();
               onClick();

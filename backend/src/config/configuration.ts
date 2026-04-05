@@ -34,4 +34,8 @@ export default () => ({
   admin: {
     token: process.env.ADMIN_TOKEN || '',
   },
+  lyrics: {
+    qwenAsrUrl: process.env.QWEN_ASR_URL || process.env.VOSK_ASR_URL || '',
+    qwenAsrKey: process.env.QWEN_ASR_KEY || process.env.VOSK_ASR_KEY || '',
+  },
 });

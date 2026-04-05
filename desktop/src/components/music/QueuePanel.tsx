@@ -127,7 +127,7 @@ const DraggableQueue = React.memo(({ startIndex }: { startIndex: number }) => {
 
         return (
           <div
-            key={`${track.urn}-${absIdx}`}
+            key={track.urn}
             data-queue-item
             className={`flex items-center gap-3 px-3 py-2 rounded-xl group transition-all duration-150 select-none ${
               isDragging

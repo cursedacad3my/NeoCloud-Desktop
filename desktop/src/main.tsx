@@ -5,6 +5,7 @@ import ReactDOM, { type Root } from 'react-dom/client';
 import App from './App';
 import i18n from './i18n';
 import { ApiError } from './lib/api';
+import './lib/app-visibility';
 import { setServerPorts } from './lib/constants';
 import { isTauriRuntime } from './lib/runtime';
 import './lib/audio';
@@ -18,6 +19,10 @@ useSettingsStore.persist.onFinishHydration((state) => {
   if (!isTauriRuntime()) return;
   invoke('audio_set_eq', { enabled: state.eqEnabled, gains: state.eqGains }).catch(console.error);
   invoke('audio_set_normalization', { enabled: state.normalizeVolume }).catch(console.error);
+  invoke('save_framerate_config', {
+    target: state.targetFramerate,
+    unlocked: state.unlockFramerate,
+  }).catch(console.error);
 });
 
 
@@ -53,18 +58,120 @@ export const queryClient = new QueryClient({
 
 type RootWindow = Window & {
   __scdRoot?: Root;
+  __scdDevPerfTimelineCleanup?: {
+    intervalId: number;
+    onVisibilityChange: () => void;
+    onPageHide: () => void;
+  };
 };
+
+function clearDevPerformanceTimeline() {
+  performance.clearMeasures();
+  performance.clearMarks();
+}
+
+function ensureDevPerformanceTimelineCleanup() {
+  if (!import.meta.env.DEV) return;
+
+  const rootWindow = window as RootWindow;
+  if (rootWindow.__scdDevPerfTimelineCleanup) return;
+
+  const onVisibilityChange = () => {
+    if (document.visibilityState === 'hidden') {
+      clearDevPerformanceTimeline();
+    }
+  };
+  const onPageHide = () => {
+    clearDevPerformanceTimeline();
+  };
+
+  // Dev tooling can flood the User Timing timeline in long-running sessions.
+  const intervalId = window.setInterval(() => {
+    clearDevPerformanceTimeline();
+  }, 15_000);
+
+  clearDevPerformanceTimeline();
+  document.addEventListener('visibilitychange', onVisibilityChange);
+  window.addEventListener('pagehide', onPageHide);
+
+  rootWindow.__scdDevPerfTimelineCleanup = {
+    intervalId,
+    onVisibilityChange,
+    onPageHide,
+  };
+
+  import.meta.hot?.dispose(() => {
+    clearDevPerformanceTimeline();
+    window.clearInterval(intervalId);
+    document.removeEventListener('visibilitychange', onVisibilityChange);
+    window.removeEventListener('pagehide', onPageHide);
+    delete rootWindow.__scdDevPerfTimelineCleanup;
+  });
+}
+
+function BootstrapScreen({
+  title,
+  label,
+  error,
+}: {
+  title: string;
+  label: string;
+  error?: string;
+}) {
+  return (
+    <div className="h-screen relative overflow-hidden bg-[rgb(8,8,10)] text-white">
+      <div className="absolute inset-0">
+        <div className="absolute -top-16 left-[12%] h-72 w-72 rounded-full bg-accent/[0.12] blur-[120px]" />
+        <div className="absolute bottom-0 right-[10%] h-80 w-80 rounded-full bg-cyan-400/[0.08] blur-[140px]" />
+      </div>
+      <div className="relative flex h-full items-center justify-center p-6">
+        <div className="flex w-full max-w-md flex-col items-center gap-4 rounded-[28px] border border-white/8 bg-white/[0.04] px-7 py-8 text-center backdrop-blur-xl">
+          {!error ? (
+            <div className="h-10 w-10 rounded-full border-2 border-white/10 border-t-accent animate-spin" />
+          ) : (
+            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-red-400/20 bg-red-500/12 text-sm font-semibold text-red-100">
+              !
+            </div>
+          )}
+          <div className="space-y-1">
+            <div className="text-sm font-semibold tracking-tight text-white/92">{title}</div>
+            <div className="text-xs text-white/45">{label}</div>
+          </div>
+          {error ? (
+            <pre className="mt-2 max-h-56 w-full overflow-auto rounded-2xl border border-white/8 bg-black/20 p-4 text-left text-xs text-white/70">
+              {error}
+            </pre>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function getRoot(): Root | null {
+  const rootEl = document.getElementById('root');
+  if (!rootEl) return null;
+
+  const rootWindow = window as RootWindow;
+  const root = rootWindow.__scdRoot ?? ReactDOM.createRoot(rootEl);
+  rootWindow.__scdRoot = root;
+  return root;
+}
+
+function renderBootstrapScreen(root: Root, title: string, label: string, error?: string) {
+  root.render(
+    <React.StrictMode>
+      <BootstrapScreen title={title} label={label} error={error} />
+    </React.StrictMode>,
+  );
+}
 
 async function registerServiceWorker(proxyPort: number) {
   if (!('serviceWorker' in navigator)) return;
   try {
     await navigator.serviceWorker.register(`/sw.js?port=${proxyPort}`);
     if (!navigator.serviceWorker.controller) {
-      await new Promise<void>((resolve) =>
-        navigator.serviceWorker.addEventListener('controllerchange', () => resolve(), {
-          once: true,
-        }),
-      );
+      console.info('[SW] Registered, controller will attach on a later navigation.');
     }
   } catch (e) {
     console.warn('[SW] Registration failed, running without proxy SW:', e);
@@ -72,53 +179,60 @@ async function registerServiceWorker(proxyPort: number) {
 }
 
 async function bootstrap() {
+  ensureDevPerformanceTimelineCleanup();
+
+  const root = getRoot();
+  if (!root) return;
+
+  renderBootstrapScreen(root, 'SoundCloud Desktop', 'Starting app...');
+
   let staticPort = 1420;
   let proxyPort = 1420;
 
-  let tauriRuntime = isTauriRuntime();
-  if (!tauriRuntime) {
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    tauriRuntime = isTauriRuntime();
-  }
-
-  if (tauriRuntime) {
-    await Promise.all([
-      import('./lib/scproxy'),
-      import('./lib/discord'),
-      import('./lib/tray'),
-    ]);
-    try {
-      const ports = await invoke<[number, number]>('get_server_ports');
-      staticPort = ports[0];
-      proxyPort = ports[1];
-    } catch (e) {
-      console.warn('Failed to get Tauri ports. Using defaults:', e);
+  try {
+    let tauriRuntime = isTauriRuntime();
+    if (!tauriRuntime) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      tauriRuntime = isTauriRuntime();
     }
-  } else {
-    console.warn('[Bootstrap] Browser mode detected (without Tauri runtime).');
-    console.warn('[Bootstrap] For full app behavior run `pnpm dev:mcp` and use the Tauri window.');
+
+    if (tauriRuntime) {
+      renderBootstrapScreen(root, 'SoundCloud Desktop', 'Connecting desktop services...');
+      await Promise.all([import('./lib/scproxy'), import('./lib/discord'), import('./lib/tray')]);
+      try {
+        const ports = await invoke<[number, number]>('get_server_ports');
+        staticPort = ports[0];
+        proxyPort = ports[1];
+      } catch (e) {
+        console.warn('Failed to get Tauri ports. Using defaults:', e);
+      }
+    } else {
+      console.warn('[Bootstrap] Browser mode detected (without Tauri runtime).');
+      console.warn('[Bootstrap] For full app behavior run `pnpm dev:mcp` and use the Tauri window.');
+    }
+
+    setServerPorts(staticPort, proxyPort);
+
+    root.render(
+      <React.StrictMode>
+        <QueryClientProvider client={queryClient}>
+          <App />
+        </QueryClientProvider>
+      </React.StrictMode>,
+    );
+
+    if (tauriRuntime) {
+      void registerServiceWorker(proxyPort);
+    }
+  } catch (error) {
+    console.error('[Bootstrap] Failed to initialize app:', error);
+    renderBootstrapScreen(
+      root,
+      'Startup failed',
+      'The renderer hit an error before the main UI was ready.',
+      error instanceof Error ? error.stack || error.message : String(error),
+    );
   }
-
-  setServerPorts(staticPort, proxyPort);
-
-  if (tauriRuntime) {
-    await registerServiceWorker(proxyPort);
-  }
-
-  const rootEl = document.getElementById('root');
-  if (!rootEl) return;
-
-  const rootWindow = window as RootWindow;
-  const root = rootWindow.__scdRoot ?? ReactDOM.createRoot(rootEl);
-  rootWindow.__scdRoot = root;
-
-  root.render(
-    <React.StrictMode>
-      <QueryClientProvider client={queryClient}>
-        <App />
-      </QueryClientProvider>
-    </React.StrictMode>,
-  );
 }
 
 void bootstrap();
