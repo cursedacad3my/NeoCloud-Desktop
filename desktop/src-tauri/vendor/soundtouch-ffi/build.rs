@@ -1,4 +1,4 @@
-use std::{env, fs, path::PathBuf};
+use std::{env, fs, path::Path, path::PathBuf};
 const SOUNDTOUCH_DIR: &str = "soundtouch-2_3_2";
 
 #[allow(dead_code)] // Used conditionally based on target platform
@@ -14,7 +14,7 @@ fn link_system() {
     println!("cargo:rustc-link-lib=dylib=stdc++");
 }
 
-fn build() {
+fn build(out_dir: &Path) {
     let soundtouch_dir = std::path::Path::new(SOUNDTOUCH_DIR);
     let source_dir = soundtouch_dir.join("source").join("SoundTouch");
 
@@ -54,7 +54,12 @@ fn build() {
         }
     }
 
-    cc.compile("SoundTouch")
+    cc.compile("SoundTouch");
+
+    println!(
+        "cargo:archive={}",
+        out_dir.join("libSoundTouch.a").display()
+    );
 }
 
 fn main() {
@@ -123,5 +128,5 @@ fn main() {
         target_os = "macos",
         windows
     ))]
-    build();
+    build(&out_dir);
 }
