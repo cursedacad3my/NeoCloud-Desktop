@@ -898,6 +898,10 @@ const TrackColumn = React.memo(({ track, maxArt }: { track: Track; maxArt?: stri
   }, [artwork500, artworkOriginal, track.urn]);
 
   const fullscreenArtSrc = fullscreenArtSources[fullscreenArtIndex] ?? null;
+  const columnMaxWidthClass = `w-full ${maxArt ?? 'max-w-[360px]'}`;
+  const columnWidthTransitionStyle = {
+    transition: 'max-width 500ms cubic-bezier(0.22, 1, 0.36, 1)',
+  } satisfies React.CSSProperties;
   const fullArtModal =
     showFullArt && fullscreenArtSrc && typeof document !== 'undefined'
       ? createPortal(
@@ -951,7 +955,8 @@ const TrackColumn = React.memo(({ track, maxArt }: { track: Track; maxArt?: stri
   return (
     <div className="relative z-10 flex h-full min-h-0 w-full flex-col items-center justify-center gap-5 px-12">
       <div
-        className={`w-full ${maxArt ?? 'max-w-[360px]'} aspect-square rounded-2xl overflow-hidden shadow-2xl shadow-black/60 ring-1 ring-white/[0.08] relative group/art`}
+        className={`${columnMaxWidthClass} aspect-square rounded-2xl overflow-hidden shadow-2xl shadow-black/60 ring-1 ring-white/[0.08] relative group/art`}
+        style={columnWidthTransitionStyle}
       >
         {artwork500 ? (
           <>
@@ -1008,12 +1013,15 @@ const TrackColumn = React.memo(({ track, maxArt }: { track: Track; maxArt?: stri
 
       {fullArtModal}
 
-      <div className={`w-full ${maxArt ?? 'max-w-[360px]'} text-center space-y-1`}>
+      <div
+        className={`${columnMaxWidthClass} text-center space-y-1`}
+        style={columnWidthTransitionStyle}
+      >
         <p className="text-[18px] font-bold text-white/95 truncate">{track.title}</p>
         <p className="text-[14px] text-white/40 truncate">{track.user.username}</p>
       </div>
 
-      <div className={`w-full ${maxArt ?? 'max-w-[360px]'}`}>
+      <div className={columnMaxWidthClass} style={columnWidthTransitionStyle}>
         <ProgressSlider />
         <div className="flex justify-center mt-1">
           <ProgressTime />
@@ -1025,7 +1033,8 @@ const TrackColumn = React.memo(({ track, maxArt }: { track: Track; maxArt?: stri
       </div>
 
       <div
-        className={`relative z-20 flex w-full ${maxArt ?? 'max-w-[360px]'} flex-col items-center gap-1 rounded-[22px] border border-white/[0.08] bg-black/28 px-4 py-3 shadow-[0_20px_70px_rgba(0,0,0,0.32)] backdrop-blur-xl`}
+        className={`relative z-20 flex ${columnMaxWidthClass} flex-col items-center gap-1 rounded-[22px] border border-white/[0.08] bg-black/28 px-4 py-3 shadow-[0_20px_70px_rgba(0,0,0,0.32)] backdrop-blur-xl`}
+        style={columnWidthTransitionStyle}
       >
         <FullscreenVolumeSlider />
         <FullscreenPlaybackSpeedSlider />
@@ -1500,7 +1509,9 @@ const SyncedLyricsWithPlaceholders = React.memo(({ lines }: { lines: LyricLine[]
 });
 
 function getCenteredLyricScrollTop(container: HTMLElement, el: HTMLElement) {
-  return el.offsetTop - container.clientHeight / 2 + el.clientHeight / 2 + container.clientHeight * 0.028;
+  return (
+    el.offsetTop - container.clientHeight / 2 + el.clientHeight / 2 + container.clientHeight * 0.028
+  );
 }
 
 const ReleaseSyncedLyricsWithProgress = React.memo(
@@ -3209,11 +3220,18 @@ const FullscreenPanels = React.memo(() => {
   const splitDraggingRef = useRef(false);
   const [isResizingSplit, setIsResizingSplit] = useState(false);
 
-  const splitPercent = Math.round(lyricsSplitRatio * 100);
+  const splitPercent = lyricsSplitRatio * 100;
   const lyricsPanePercent = 100 - splitPercent;
   const lyricsTrackScale = isLyrics
     ? 0.82 + ((Math.max(0.2, Math.min(0.8, lyricsSplitRatio)) - 0.2) / 0.6) * 0.18
     : 1;
+  const fullscreenTransitionEase = 'cubic-bezier(0.22, 1, 0.36, 1)';
+  const fullscreenTransitionDurationMs = 500;
+  const layoutTransition = isResizingSplit
+    ? 'none'
+    : `${fullscreenTransitionDurationMs}ms ${fullscreenTransitionEase}`;
+  const trackStageTranslateX = isLyrics ? `${((splitPercent - 100) / 2).toFixed(3)}%` : '0%';
+  const trackStageClipPath = isLyrics ? `inset(0 ${lyricsPanePercent}% 0 0)` : 'inset(0 0 0 0)';
 
   const updateSplitFromClientX = useCallback(
     (clientX: number) => {
@@ -3305,20 +3323,32 @@ const FullscreenPanels = React.memo(() => {
       <div ref={splitRef} className="relative z-10 flex-1 min-h-0" style={{ isolation: 'isolate' }}>
         {/* Left: track column */}
         <div
-          className="min-w-0 min-h-0 h-full flex items-center justify-center overflow-hidden"
+          className="absolute inset-0 min-w-0 min-h-0"
           style={{
-            width: isLyrics ? `${splitPercent}%` : '100%',
-            transition: 'width 500ms cubic-bezier(0.22,1,0.36,1)',
+            clipPath: trackStageClipPath,
+            WebkitClipPath: trackStageClipPath,
+            transition: layoutTransition === 'none' ? 'none' : `clip-path ${layoutTransition}`,
+            willChange: 'clip-path',
           }}
         >
           <div
+            className="flex h-full w-full items-center justify-center"
             style={{
-              transform: `scale(${lyricsTrackScale.toFixed(3)})`,
-              transformOrigin: 'center center',
-              transition: 'transform 500ms cubic-bezier(0.22,1,0.36,1)',
+              transform: `translate3d(${trackStageTranslateX}, 0, 0)`,
+              transition: layoutTransition === 'none' ? 'none' : `transform ${layoutTransition}`,
+              willChange: 'transform',
             }}
           >
-            <TrackColumn track={track} maxArt={isLyrics ? 'max-w-[340px]' : 'max-w-[420px]'} />
+            <div
+              style={{
+                transform: `scale(${lyricsTrackScale.toFixed(3)})`,
+                transformOrigin: 'center center',
+                transition: layoutTransition === 'none' ? 'none' : `transform ${layoutTransition}`,
+                willChange: 'transform',
+              }}
+            >
+              <TrackColumn track={track} maxArt={isLyrics ? 'max-w-[340px]' : 'max-w-[420px]'} />
+            </div>
           </div>
         </div>
 
@@ -3328,10 +3358,13 @@ const FullscreenPanels = React.memo(() => {
           style={{
             width: `${lyricsPanePercent}%`,
             opacity: isLyrics ? 1 : 0,
-            transform: isLyrics ? 'translateX(0)' : 'translateX(10%)',
+            transform: isLyrics ? 'translate3d(0, 0, 0)' : 'translate3d(10%, 0, 0)',
             pointerEvents: isLyrics ? 'auto' : 'none',
             transition:
-              'transform 500ms cubic-bezier(0.22,1,0.36,1), opacity 320ms ease, width 500ms cubic-bezier(0.22,1,0.36,1)',
+              layoutTransition === 'none'
+                ? 'opacity 160ms ease'
+                : `transform ${layoutTransition}, opacity 320ms ease, width ${layoutTransition}`,
+            willChange: 'transform, opacity, width',
           }}
         >
           <div className="h-full min-h-0">
@@ -3349,7 +3382,11 @@ const FullscreenPanels = React.memo(() => {
             left: isLyrics ? `${splitPercent}%` : '100%',
             opacity: isLyrics ? 1 : 0,
             pointerEvents: isLyrics ? 'auto' : 'none',
-            transition: 'opacity 300ms ease',
+            transition:
+              layoutTransition === 'none'
+                ? 'opacity 160ms ease'
+                : `left ${layoutTransition}, opacity 300ms ease`,
+            willChange: 'left, opacity',
           }}
           onPointerDown={(e) => {
             if (!isLyrics) return;
