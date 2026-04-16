@@ -29,7 +29,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEEwNDZFMDEyRTRCNDM2MUEKUldRYU5yVGtFdUJHb0pjYzBrRC9JMUhIWERJb3JPeWNaOFVaamZWWTJCZmpnY3kwMENuaUo4TkUK",
+      "pubkey": "ZFc1MGNuVnpkR1ZrSUdOdmJXMWxiblE2SUcxcGJtbHphV2R1SUhCMVlteHBZeUJyWlhrNklESkRPVFpCTnpoRVFqRkVOak14UVRjS1VsZFRiazFrWVhocVlXVlhURXBHYldkbVkzSjFOakJOVG1GYVVXbzBVRGRZY0d4TlFrMDVXbTVtVFhaMFdrdGxRbVl5TmtsbGJqSUs=",
       "endpoints": [
         "https://github.com/Teiwazik/SoundCloud-DesktopFork/releases/latest/download/latest.json"
       ],
