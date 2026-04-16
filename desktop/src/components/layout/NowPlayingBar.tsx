@@ -78,55 +78,107 @@ function formatPitchSemitones(semitones: number): string {
 const DownloadProgressPanel = React.memo(() => {
   const downloadProgress = usePlayerStore((s) => s.downloadProgress);
   const animRef = useRef<number | null>(null);
+  const hideTimeoutRef = useRef<number | null>(null);
+  const measuredProgressRef = useRef(0);
   const progressRef = useRef(0);
   const [, forceUpdate] = useState(0);
 
   useEffect(() => {
-    if (downloadProgress === null) {
+    const stopAnimation = () => {
       if (animRef.current) {
         cancelAnimationFrame(animRef.current);
         animRef.current = null;
       }
-      progressRef.current = 0;
+    };
+
+    const clearHideTimeout = () => {
+      if (hideTimeoutRef.current) {
+        window.clearTimeout(hideTimeoutRef.current);
+        hideTimeoutRef.current = null;
+      }
+    };
+
+    clearHideTimeout();
+
+    if (downloadProgress === null) {
+      if (measuredProgressRef.current > 0) {
+        progressRef.current = Math.max(progressRef.current, measuredProgressRef.current);
+      }
+
+      if (progressRef.current >= 0.5 || measuredProgressRef.current >= 0.5) {
+        let last = performance.now();
+        const tick = (now: number) => {
+          const dt = (now - last) / 1000;
+          last = now;
+
+          progressRef.current += (1 - progressRef.current) * dt * 12;
+          if (1 - progressRef.current < 0.002) {
+            progressRef.current = 1;
+            forceUpdate((n) => n + 1);
+            stopAnimation();
+            hideTimeoutRef.current = window.setTimeout(() => {
+              progressRef.current = 0;
+              measuredProgressRef.current = 0;
+              hideTimeoutRef.current = null;
+              forceUpdate((n) => n + 1);
+            }, 140);
+            return;
+          }
+
+          forceUpdate((n) => n + 1);
+          animRef.current = requestAnimationFrame(tick);
+        };
+
+        stopAnimation();
+        animRef.current = requestAnimationFrame(tick);
+      } else {
+        stopAnimation();
+        progressRef.current = 0;
+        measuredProgressRef.current = 0;
+      }
       return;
     }
 
-    if (downloadProgress >= 1) {
-      if (animRef.current) {
-        cancelAnimationFrame(animRef.current);
-        animRef.current = null;
-      }
-      progressRef.current = 1;
-      forceUpdate((n) => n + 1);
-      const timer = setTimeout(() => {
-        progressRef.current = 0;
-        usePlayerStore.setState({ downloadProgress: null });
-      }, 400);
-      return () => clearTimeout(timer);
-    }
+    measuredProgressRef.current = Math.max(
+      measuredProgressRef.current,
+      Math.max(0, Math.min(downloadProgress, 1)),
+    );
 
     let last = performance.now();
     const tick = (now: number) => {
       const dt = (now - last) / 1000;
       last = now;
-      progressRef.current += (0.92 - progressRef.current) * dt * 0.8;
+
+      const hasMeasuredProgress = Number.isFinite(downloadProgress) && downloadProgress >= 0;
+      const target =
+        downloadProgress >= 1
+          ? 1
+          : hasMeasuredProgress
+            ? Math.max(0, Math.min(downloadProgress, 0.995))
+            : 0.08;
+      const gap = Math.abs(target - progressRef.current);
+      const speed = target >= 1 ? 12 : gap > 0.22 ? 11 : target > progressRef.current ? 7.2 : 5.2;
+      progressRef.current += (target - progressRef.current) * dt * speed;
+
+      if (downloadProgress >= 1 && 1 - progressRef.current < 0.002) {
+        progressRef.current = 1;
+      }
+
       forceUpdate((n) => n + 1);
       animRef.current = requestAnimationFrame(tick);
     };
     animRef.current = requestAnimationFrame(tick);
 
     return () => {
-      if (animRef.current) {
-        cancelAnimationFrame(animRef.current);
-        animRef.current = null;
-      }
+      stopAnimation();
+      clearHideTimeout();
     };
   }, [downloadProgress]);
 
-  if (downloadProgress === null) return null;
+  if (downloadProgress === null && progressRef.current <= 0) return null;
 
   const p = Math.max(0, Math.min(1, progressRef.current));
-  const percent = p >= 1 ? 100 : Math.max(1, Math.min(99, Math.round(p * 100)));
+  const percent = p >= 1 ? 100 : Math.max(0, Math.min(99, Math.round(p * 100)));
 
   return (
     <div className="pointer-events-none absolute left-1/2 top-0 z-30 -translate-x-1/2 -translate-y-[calc(100%+8px)]">

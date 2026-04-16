@@ -3,7 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import { getEffectivePitchSemitones, type Track, usePlayerStore } from '../stores/player';
 import { useSettingsStore } from '../stores/settings';
 import { useSoundWaveStore } from '../stores/soundwave';
-import { api, getSessionId, resolveTrackFromStreaming, streamUrl } from './api';
+import { api, getSessionId, resolveTrackFromStreaming, streamFallbackUrls } from './api';
 import { audioAnalyser } from './audio-analyser';
 import {
   fetchAndCacheTrack,
@@ -35,6 +35,8 @@ let endedGuardUntil = 0;
 let deviceChangeCooldownUntil = 0;
 let seekTargetTime = -1;
 let seekPendingUntil = 0;
+let waitingForStartupProgress = false;
+let startupProgressDeadline = 0;
 const listeners = new Set<() => void>();
 
 function notify() {
@@ -169,6 +171,8 @@ function stopTrack() {
     invoke('audio_stop').catch(console.error);
   }
   hasTrack = false;
+  waitingForStartupProgress = false;
+  startupProgressDeadline = 0;
   cachedTime = 0;
   lastSmoothTime = 0;
 }
@@ -182,7 +186,17 @@ export async function reloadCurrentTrack() {
   const wasPlaying = usePlayerStore.getState().isPlaying;
   // If a seek is pending, use the seek target instead of cachedTime
   // (cachedTime may have been overwritten by stale ticks from the old position)
-  const pos = seekPendingUntil > Date.now() && seekTargetTime >= 0 ? seekTargetTime : cachedTime;
+  let pos = seekPendingUntil > Date.now() && seekTargetTime >= 0 ? seekTargetTime : cachedTime;
+  if (wasPlaying && pos < 0.2) {
+    try {
+      const nativePos = await invoke<number>('audio_get_position');
+      if (Number.isFinite(nativePos) && nativePos > pos) {
+        pos = nativePos;
+      }
+    } catch (error) {
+      console.warn('[Audio] Failed to query native position before reload', error);
+    }
+  }
   await loadTrack(track);
   if (pos > 0) seek(pos, false);
   if (!wasPlaying) invoke('audio_pause').catch(console.error);
@@ -219,6 +233,23 @@ function mergeTrackMetadata(base: Track, patch: TrackMetadataPatch): Track {
     permalink_url: patch.permalink_url ?? base.permalink_url,
     user: patch.user ? { ...base.user, ...patch.user } : base.user,
   };
+}
+
+function isLikelyFullTrackPlayback(
+  track: Pick<Track, 'duration' | 'access'>,
+  decodedDurationSecs: number | null | undefined,
+): boolean {
+  if (track.access !== 'preview') return false;
+
+  const decodedDurationMs =
+    typeof decodedDurationSecs === 'number' && decodedDurationSecs > 0
+      ? Math.round(decodedDurationSecs * 1000)
+      : 0;
+
+  return (
+    track.duration > API_PREVIEW_DURATION_MS + 1000 ||
+    decodedDurationMs > API_PREVIEW_DURATION_MS + 1000
+  );
 }
 
 function commitTrackMetadata(track: Track) {
@@ -276,6 +307,8 @@ async function loadTrack(track: Track, skipStop = false) {
   cachedDuration = fallbackDuration;
   cachedTime = 0;
   lastSmoothTime = 0;
+  waitingForStartupProgress = true;
+  startupProgressDeadline = Date.now() + 8000;
   seekTargetTime = -1;
   seekPendingUntil = 0;
   usePlayerStore.setState({ downloadProgress: null });
@@ -352,30 +385,40 @@ async function loadTrack(track: Track, skipStop = false) {
     let lastError: unknown = null;
     for (const attempt of attempts) {
       const qualityLabel = attempt.hq ? 'hq' : 'lq';
-      const url = streamUrl(urn, attempt.format, attempt.hq);
-      console.log(`[Audio] Stream attempt: quality=${qualityLabel}, format=${attempt.format}`);
-      try {
-        const result = await invoke<AudioLoadInvokeResult>('audio_load_url', {
-          url,
-          sessionId: getSessionId(),
-          cachePath: cacheTargetPath,
-          cacheKey: urn,
-          crossfadeSecs,
-        });
-        const streamCodec =
-          inferCodecFromContentType(result.stream_content_type) ||
-          inferCodecFromFormat(attempt.format) ||
-          undefined;
+      for (const url of streamFallbackUrls(urn, attempt.format, attempt.hq)) {
+        const origin = (() => {
+          try {
+            return new URL(url).origin;
+          } catch {
+            return 'unknown';
+          }
+        })();
         console.log(
-          `[Audio] Stream loaded: requested=${attempt.format}, pref=${qualityLabel}, resolved=${result.stream_quality || 'unknown'}, codec=${streamCodec || 'unknown'}, mime=${result.stream_content_type || 'unknown'}`,
+          `[Audio] Stream attempt: quality=${qualityLabel}, format=${attempt.format}, host=${origin}`,
         );
-        return { ...result, stream_codec: streamCodec };
-      } catch (error) {
-        lastError = error;
-        const message = error instanceof Error ? error.message : String(error);
-        console.warn(
-          `[Audio] Stream attempt failed: quality=${qualityLabel}, format=${attempt.format}, error=${message}`,
-        );
+        try {
+          const result = await invoke<AudioLoadInvokeResult>('audio_load_url', {
+            url,
+            sessionId: getSessionId(),
+            cachePath: cacheTargetPath,
+            cacheKey: urn,
+            crossfadeSecs,
+          });
+          const streamCodec =
+            inferCodecFromContentType(result.stream_content_type) ||
+            inferCodecFromFormat(attempt.format) ||
+            undefined;
+          console.log(
+            `[Audio] Stream loaded: requested=${attempt.format}, pref=${qualityLabel}, host=${origin}, resolved=${result.stream_quality || 'unknown'}, codec=${streamCodec || 'unknown'}, mime=${result.stream_content_type || 'unknown'}`,
+          );
+          return { ...result, stream_codec: streamCodec };
+        } catch (error) {
+          lastError = error;
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn(
+            `[Audio] Stream attempt failed: quality=${qualityLabel}, format=${attempt.format}, host=${origin}, error=${message}`,
+          );
+        }
       }
     }
 
@@ -413,8 +456,6 @@ async function loadTrack(track: Track, skipStop = false) {
       result = await loadFromNetworkWithFallback();
     }
 
-    usePlayerStore.setState({ downloadProgress: null });
-
     const resolvedQuality =
       result.stream_quality === 'hq' || result.stream_quality === 'lq'
         ? result.stream_quality
@@ -428,6 +469,9 @@ async function loadTrack(track: Track, skipStop = false) {
       inferCodecFromContentType(result.stream_content_type) ||
       track.streamCodec ||
       (resolvedQuality === 'hq' ? 'AAC' : 'MP3');
+    if (isLikelyFullTrackPlayback(track, result.duration_secs)) {
+      usePlayerStore.getState().setTrackAccessByUrn(track.urn, 'playable');
+    }
     usePlayerStore.getState().setCurrentTrackStreamQuality(resolvedQuality);
     usePlayerStore.getState().setCurrentTrackStreamCodec(resolvedCodec);
     console.log(
@@ -436,6 +480,8 @@ async function loadTrack(track: Track, skipStop = false) {
   } catch (e) {
     console.error('[Audio] Load failed:', e);
     usePlayerStore.setState({ downloadProgress: null });
+    waitingForStartupProgress = false;
+    startupProgressDeadline = 0;
     if (gen !== loadGen) return;
     if (isNotFoundLoadError(e)) {
       console.warn(`[Audio] Marking track as unavailable after stream 404: ${track.urn}`);
@@ -555,7 +601,15 @@ async function recoverFromStall(elapsedMs: number) {
       cachedTime = clampedNativePos;
       lastSmoothTime = clampedNativePos;
       lastTickAt = now;
+      if (clampedNativePos > 0.05) {
+        waitingForStartupProgress = false;
+      }
       notify();
+      return;
+    }
+
+    if (waitingForStartupProgress && now < startupProgressDeadline) {
+      lastTickAt = now;
       return;
     }
 
@@ -591,6 +645,10 @@ function setupTauriBindings() {
   listen<number>('audio:tick', (event) => {
     const tickPos = event.payload;
 
+    if (usePlayerStore.getState().downloadProgress !== null && hasTrack) {
+      usePlayerStore.setState({ downloadProgress: null });
+    }
+
     // Reject stale ticks from old position while seek is in progress
     if (seekPendingUntil > Date.now() && seekTargetTime >= 0) {
       const drift = Math.abs(tickPos - seekTargetTime);
@@ -605,6 +663,9 @@ function setupTauriBindings() {
 
     cachedTime = tickPos;
     lastTickAt = Date.now();
+    if (tickPos > 0.05) {
+      waitingForStartupProgress = false;
+    }
     if (cachedDuration <= 0) cachedDuration = fallbackDuration;
     notify();
 
@@ -627,6 +688,7 @@ function setupTauriBindings() {
       return;
     }
     hasTrack = false;
+    waitingForStartupProgress = false;
     handleTrackEnd();
   });
 
