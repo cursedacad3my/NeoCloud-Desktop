@@ -3,7 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import { getEffectivePitchSemitones, type Track, usePlayerStore } from '../stores/player';
 import { useSettingsStore } from '../stores/settings';
 import { useSoundWaveStore } from '../stores/soundwave';
-import { api, getSessionId, resolveTrackFromStreaming, streamFallbackUrls } from './api';
+import { api, getSessionId, resolveTrackFromStreaming, streamUrl } from './api';
 import { audioAnalyser } from './audio-analyser';
 import {
   fetchAndCacheTrack,
@@ -385,40 +385,30 @@ async function loadTrack(track: Track, skipStop = false) {
     let lastError: unknown = null;
     for (const attempt of attempts) {
       const qualityLabel = attempt.hq ? 'hq' : 'lq';
-      for (const url of streamFallbackUrls(urn, attempt.format, attempt.hq)) {
-        const origin = (() => {
-          try {
-            return new URL(url).origin;
-          } catch {
-            return 'unknown';
-          }
-        })();
+      const url = streamUrl(urn, attempt.format, attempt.hq);
+      console.log(`[Audio] Stream attempt: quality=${qualityLabel}, format=${attempt.format}`);
+      try {
+        const result = await invoke<AudioLoadInvokeResult>('audio_load_url', {
+          url,
+          sessionId: getSessionId(),
+          cachePath: cacheTargetPath,
+          cacheKey: urn,
+          crossfadeSecs,
+        });
+        const streamCodec =
+          inferCodecFromContentType(result.stream_content_type) ||
+          inferCodecFromFormat(attempt.format) ||
+          undefined;
         console.log(
-          `[Audio] Stream attempt: quality=${qualityLabel}, format=${attempt.format}, host=${origin}`,
+          `[Audio] Stream loaded: requested=${attempt.format}, pref=${qualityLabel}, resolved=${result.stream_quality || 'unknown'}, codec=${streamCodec || 'unknown'}, mime=${result.stream_content_type || 'unknown'}`,
         );
-        try {
-          const result = await invoke<AudioLoadInvokeResult>('audio_load_url', {
-            url,
-            sessionId: getSessionId(),
-            cachePath: cacheTargetPath,
-            cacheKey: urn,
-            crossfadeSecs,
-          });
-          const streamCodec =
-            inferCodecFromContentType(result.stream_content_type) ||
-            inferCodecFromFormat(attempt.format) ||
-            undefined;
-          console.log(
-            `[Audio] Stream loaded: requested=${attempt.format}, pref=${qualityLabel}, host=${origin}, resolved=${result.stream_quality || 'unknown'}, codec=${streamCodec || 'unknown'}, mime=${result.stream_content_type || 'unknown'}`,
-          );
-          return { ...result, stream_codec: streamCodec };
-        } catch (error) {
-          lastError = error;
-          const message = error instanceof Error ? error.message : String(error);
-          console.warn(
-            `[Audio] Stream attempt failed: quality=${qualityLabel}, format=${attempt.format}, host=${origin}, error=${message}`,
-          );
-        }
+        return { ...result, stream_codec: streamCodec };
+      } catch (error) {
+        lastError = error;
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(
+          `[Audio] Stream attempt failed: quality=${qualityLabel}, format=${attempt.format}, error=${message}`,
+        );
       }
     }
 
