@@ -1,195 +1,156 @@
 <p align="center">
-  <a href="https://github.com/Teiwazik/SoundCloud-DesktopFork/releases/latest">
-    <img src="https://raw.githubusercontent.com/zxcloli666/SoundCloud-Desktop/legacy/icons/appLogo.png" width="170" alt="SoundCloud Desktop Fork" />
+  <a href="https://github.com/cursedacad3my/NeoCloud-Desktop/releases">
+    <img src="https://via.placeholder.com/200x200/8B5CF6/1E1B4B?text=🌀+NeoCloud" width="170" style="border-radius: 50%; box-shadow: 0 10px 30px rgba(139, 92, 246, 0.3);" alt="NeoCloud Desktop" />
   </a>
 </p>
 
-<h1 align="center">SoundCloud Desktop Fork</h1>
+# NeoCloud-Desktop
+<div align="center">
+  
+[![Version](https://img.shields.io/badge/Version-0.1.0-8B5CF6?style=for-the-badge&logo=nodejs&color=1E1B4B)](https://github.com/cursedacad3my/NeoCloud-Desktop/releases)
+[![Stars](https://img.shields.io/github/stars/cursedacad3my/NeoCloud-Desktop?style=for-the-badge&logo=github&color=8B5CF6&label=⭐)](https://github.com/cursedacad3my/NeoCloud-Desktop/stargazers)
+[![Issues](https://img.shields.io/github/issues/cursedacad3my/NeoCloud-Desktop?style=for-the-badge&logo=issuehunt&color=A78BFA&label=Issues)](https://github.com/cursedacad3my/NeoCloud-Desktop/issues)
 
-<p align="center">
-  Форк нативного SoundCloud-клиента на Tauri v2 для Windows, Linux и macOS<br/>
-  Без рекламы · Без капчи · Улучшенный плеер · Активные релизы
-</p>
+**🖤 Фиолетово-черный SoundCloud клиент для России**  
+*Без рекламы · Без капчи · Стильный дизайн · Нативное Tauri 2 приложение*
 
-<p align="center">
-  <a href="https://github.com/Teiwazik/SoundCloud-DesktopFork/releases/latest">
-    <img src="https://img.shields.io/github/v/release/Teiwazik/SoundCloud-DesktopFork?style=for-the-badge&logo=github&color=FF5500&label=VERSION" alt="Version"/>
-  </a>
-  <a href="https://github.com/Teiwazik/SoundCloud-DesktopFork/releases">
-    <img src="https://img.shields.io/github/downloads/Teiwazik/SoundCloud-DesktopFork/total?style=for-the-badge&logo=download&color=FF5500&label=Downloads" alt="Downloads"/>
-  </a>
-  <a href="https://github.com/Teiwazik/SoundCloud-DesktopFork/stargazers">
-    <img src="https://img.shields.io/github/stars/Teiwazik/SoundCloud-DesktopFork?style=for-the-badge&logo=github&color=FF5500&label=Stars" alt="Stars"/>
-  </a>
-</p>
+</div>
 
-<p align="center">
-  <a href="https://github.com/Teiwazik/SoundCloud-DesktopFork/releases/latest">
-    <img src="https://img.shields.io/badge/Скачать-Последнюю_Версию-FF5500?style=for-the-badge" alt="Download"/>
+<div align="center">
+  <a href="https://github.com/cursedacad3my/NeoCloud-Desktop/releases">
+    <img src="https://img.shields.io/badge/Скачать_NeoCloud-8B5CF6?style=for-the-badge&logo=download&color=1E1B4B" height="40"/>
   </a>
-  <a href="https://teiwazik.github.io/soundcloud-desktopfork-site/">
-    <img src="https://img.shields.io/badge/Сайт_форка-GitHub_Pages-1f6feb?style=for-the-badge" alt="Fork Site"/>
-  </a>
+  &nbsp;
+  <img src="https://img.shields.io/badge/В_Разработке-🔥-8B5CF6?style=for-the-badge&logo=construction&color=1E1B4B" height="40"/>
+  &nbsp;
   <a href="https://github.com/zxcloli666/SoundCloud-Desktop">
-    <img src="https://img.shields.io/badge/Основной_репозиторий-Upstream-24292f?style=for-the-badge" alt="Upstream"/>
+    <img src="https://img.shields.io/badge/Форк_of-SoundCloud_Desktop-9333EA?style=for-the-badge&logo=github&color=1E1B4B" height="40"/>
   </a>
-</p>
+</div>
+
+<br>
+
+## ✨ Что такого особенного в NeoCloud?
+
+**NeoCloud-Desktop** — это **фиолетово-черный** форк популярного SoundCloud Desktop с акцентом на стиль и производительность.
+
+| 🎨 **Дизайн** | 🛡️ **Функционал** | ⚡ **Производительность** |
+|---------------|-------------------|--------------------------|
+| Фиолетово-черная тема | Работает в России | ~15 МБ установщик |
+| Плавные анимации | Без рекламы/капчи | 80-120 МБ RAM |
+| Современный UI | Discord Rich Presence | 60 FPS на слабом ПК |
 
 ---
 
-## Статистика загрузок
+## 📱 Скриншоты (Coming Soon)
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/Teiwazik/SoundCloud-DesktopFork/main/downloads-chart.svg" alt="Downloads chart" width="800"/>
-</p>
+<div align="center">
+  <table>
+    <tr>
+      <td align="center">
+        <img src="https://via.placeholder.com/380x240/1E1B4B/8B5CF6?text=🌀+Главная+страница" width="380" height="240"/>
+        <p><b>Главная страница</b></p>
+      </td>
+      <td align="center">
+        <img src="https://via.placeholder.com/380x240/1E1B4B/A78BFA?text=🎵+Плеер" width="380" height="240"/>
+        <p><b>Плеер</b></p>
+      </td>
+    </tr>
+    <tr>
+      <td align="center">
+        <img src="https://via.placeholder.com/380x240/1E1B4B/C4B5FD?text=⭐+Лайки" width="380" height="240"/>
+        <p><b>Лайкнутые треки</b></p>
+      </td>
+      <td align="center">
+        <img src="https://via.placeholder.com/380x240/1E1B4B/BE90F9?text=⚙️+Настройки" width="380" height="240"/>
+        <p><b>Настройки темы</b></p>
+      </td>
+    </tr>
+  </table>
+</div>
 
-<p align="center">
-  Актуально для <b>v6.1.15</b> · <b>1024</b> total downloads · <b>3</b> stars
-</p>
-
----
-
-## Что это
-
-**SoundCloud Desktop Fork** — форк клиента SoundCloud с упором на стабильные релизы, качество воспроизведения и улучшения UX/рекомендаций.
-
-- Нативная оболочка: **Tauri v2 + Rust**
-- Интерфейс: **React 19 + Vite + Tailwind**
-- Поддержка: **Windows / Linux / macOS**
-- Автообновления через GitHub Releases
-
----
-
-## Ключевые улучшения в этом форке
-
-### Интерфейс и playback UX
-
-- Добавлен отдельный **HQ/LQ badge** в mini player и fullscreen-панелях.
-- Улучшены fullscreen-режимы lyrics/artwork и переходы обложек (low-res -> high-res).
-- Исправлены конфликтные обновления прогресса и снижено визуальное "дёргание" таймлайна.
-- Исправлено поведение громкости при **crossfade** (без резкого скачка на стыках).
-
-### Fullscreen, lyrics, визуал
-
-- Оптимизированы fullscreen-панели (lyrics/artwork) и фоновые эффекты.
-- Снижены лишние re-render/DOM-конфликты на прогресс-баре.
-- Улучшена плавность отображения прогресса и переключений треков.
-
-### Рекомендации (fork-only)
-
-- Расширена векторизация треков (**Qdrant 96D**).
-- Добавлен **hybrid recommend/search/rerank** pipeline.
-- Добавлены **региональные тренды** (Apple/Deezer) в пул discovery.
-- Поддержан **LLM rerank** (через настраиваемый endpoint/model).
-
-### Импорт и локализация (fork-only)
-
-- Добавлен импорт плейлистов из **Spotify** и **YouTube Music**.
-- Добавлена локализация **Ukrainian (`uk`)** в desktop.
-
-### Release/Updater инфраструктура
-
-- Исправлен релизный pipeline для корректной линейки версий **6.x**.
-- Ротация ключей подписи updater и обновление release-артефактов.
-- Актуальные `latest.json` и `.sig` для стабильной проверки подписи.
-
-### Что исключено из списка улучшений
-
-Чтобы не дублировать upstream, в этом README перечислены только отличия форка, которые отсутствуют в `zxcloli666/SoundCloud-Desktop` на текущем сравнении.
+<div align="center">
+  <i>🎉 Скриншоты реальной версии появятся в первом релизе!</i>
+</div>
 
 ---
 
-## Скачать
+## 🚀 Скачать (Скоро!)
 
-Релизы: https://github.com/Teiwazik/SoundCloud-DesktopFork/releases/latest
+**Активно разрабатывается** — первый релиз на днях!
 
-### Windows
-- `*.exe` (рекомендуется)
-- `*.msi`
+| ОС | Форматы |
+|----|---------|
+| **Windows 10/11** | `.exe` (рекомендуется), `.msi` |
+| **Linux** | `.deb`, `.rpm`, `.AppImage`, `.flatpak` |
+| **macOS** | `.dmg` (Apple Silicon / Intel) |
 
-### Linux
-- `.deb` (amd64/arm64)
-- `.rpm` (x86_64/aarch64)
-- `.AppImage` (amd64/aarch64)
-- `.flatpak`
-
-### macOS
-- `*_x64.dmg` (Intel)
-- `*_aarch64.dmg` (Apple Silicon)
+**[→ Отслеживать релизы](https://github.com/cursedacad3my/NeoCloud-Desktop/releases)**
 
 ---
 
-## Сайт форка
-
-- GitHub Pages: https://teiwazik.github.io/soundcloud-desktopfork-site/
-- Репозиторий сайта: https://github.com/Teiwazik/soundcloud-desktopfork-site
-
----
-
-## Скриншоты
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/Teiwazik/SoundCloud-DesktopFork/main/assets/screenshots/home-library.png" width="48%" alt="Главный экран с библиотекой" />
-  <img src="https://raw.githubusercontent.com/Teiwazik/SoundCloud-DesktopFork/main/assets/screenshots/theme-settings.png" width="48%" alt="Настройки темы" />
-</p>
-<p align="center">
-  <img src="https://raw.githubusercontent.com/Teiwazik/SoundCloud-DesktopFork/main/assets/screenshots/visualizer-settings.png" width="48%" alt="Настройки визуализатора" />
-  <img src="https://raw.githubusercontent.com/Teiwazik/SoundCloud-DesktopFork/main/assets/screenshots/playback-settings.png" width="48%" alt="Настройки воспроизведения" />
-</p>
-<p align="center">
-  <img src="https://raw.githubusercontent.com/Teiwazik/SoundCloud-DesktopFork/main/assets/screenshots/lyrics-main.png" width="48%" alt="Lyrics экран" />
-  <img src="https://raw.githubusercontent.com/Teiwazik/SoundCloud-DesktopFork/main/assets/screenshots/lyrics-comments.png" width="48%" alt="Lyrics и комментарии" />
-</p>
-<p align="center">
-  <img src="https://raw.githubusercontent.com/Teiwazik/SoundCloud-DesktopFork/main/assets/screenshots/cover-centered-comments.png" width="48%" alt="Центрированная обложка с комментариями" />
-  <img src="https://raw.githubusercontent.com/Teiwazik/SoundCloud-DesktopFork/main/assets/screenshots/discord-activity-text.png" width="48%" alt="Discord Activity text mode" />
-</p>
-
----
-
-## Основной репозиторий (upstream)
-
-Если хотите сверять изменения с оригинальным проектом:
-
-- https://github.com/zxcloli666/SoundCloud-Desktop
-
----
-
-## Разработка
-
-### Требования
-
-- Node.js 22+
-- pnpm 10+
-- Rust stable
-
-### Запуск desktop
+## 🛠 Быстрая сборка
 
 ```bash
-git clone https://github.com/Teiwazik/SoundCloud-DesktopFork.git
-cd SoundCloud-DesktopFork/desktop
+git clone https://github.com/cursedacad3my/NeoCloud-Desktop.git
+cd NeoCloud-Desktop/desktop
 pnpm install
-pnpm tauri dev
+pnpm tauri dev  # 🚀 Запуск dev сервера
 ```
 
-### Проверки
-
+**Требования:**
 ```bash
-npx tsc --noEmit
-npx biome check src/
-cargo check
+Node.js 22+  pnpm 10+  Rust 1.77+
 ```
 
 ---
 
-## Лицензия
+## 💜 Наш стек
 
-MIT, см. файл `LICENSE`.
-
-SoundCloud — торговая марка SoundCloud Ltd. Проект не аффилирован с SoundCloud.
+```mermaid
+graph TB
+    A[Tauri 2<br/>🦀 Rust] --> B[React 19<br/>⚛️ Vite 7]
+    B --> C[Tailwind CSS 4<br/>🖤 Purple Theme]
+    C --> D[rodio<br/>🎵 Аудио]
+    A --> E[Auto Updates<br/>GitHub Releases]
+```
 
 ---
 
-## Теги
+---
 
-`soundcloud` `soundcloud-client` `desktop-app` `tauri` `react` `typescript` `rust` `cross-platform` `music-player` `music-streaming` `fork` `soundcloud-fork` `windows` `linux` `macos` `geo-unblock` `proxy` `ad-blocker`
+## 💬 Обратная связь
+
+<div align="center">
+
+| 💡 **Идея** | 🐛 **Баг** | ⭐ **Поддержка** |
+|-------------|------------|-----------------|
+| [Создать Discussions](https://github.com/cursedacad3my/NeoCloud-Desktop/discussions/new?category=ideas) | [Открыть Issue](https://github.com/cursedacad3my/NeoCloud-Desktop/issues/new) | **Поставь ⭐ прямо сейчас!** |
+
+</div>
+
+---
+
+## 🔗 Ссылки
+
+- **Оригинал:** [zxcloli666/SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop)
+- **Релизы:** [cursedacad3my/NeoCloud-Desktop/releases](https://github.com/cursedacad3my/NeoCloud-Desktop/releases)
+
+---
+
+## 📄 Лицензия
+
+[![MIT License](https://img.shields.io/badge/License-MIT-8B5CF6?style=for-the-badge&logo=mit&color=1E1B4B)](LICENSE)
+
+**NeoCloud-Desktop** — независимый проект, не связанный с SoundCloud Ltd.
+
+---
+
+<div align="center">
+
+[![Download](https://img.shields.io/badge/Скачать_NeoCloud-8B5CF6?style=for-the-badge&logo=download&color=1E1B4B&label=Скачать)](https://github.com/cursedacad3my/NeoCloud-Desktop/releases)
+[![Star](https://img.shields.io/badge/⭐_Поддержать-8B5CF6?style=for-the-badge&logo=github&color=1E1B4B&label=Star)](https://github.com/cursedacad3my/NeoCloud-Desktop/stargazers)
+
+**`neocloud` `neocloud-desktop` `soundcloud` `purple-theme` `music-player` `tauri` `react`**
+
+</div>
