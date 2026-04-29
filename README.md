@@ -1,4 +1,4 @@
-```markdown
+
 <p align="center">
   <a href="https://github.com/cursedacad3my/NeoCloud-Desktop/releases">
     <img src="https://via.placeholder.com/170x170/8B5CF6/1E1B4B?text=🌀" width="170" style="border-radius: 50%;" alt="NeoCloud Desktop" />
